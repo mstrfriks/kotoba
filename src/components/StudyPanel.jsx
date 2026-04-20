@@ -1,14 +1,7 @@
 import { useEffect, useState } from "react";
-import { Tabs } from "./ui/Tabs";
 import { LexiconPanel } from "./LexiconPanel";
 import { QuizPanel } from "./QuizPanel";
 import { SubtitlesPanel } from "./SubtitlesPanel";
-
-const tabs = [
-  { value: "lexicon", label: "Lexique" },
-  { value: "quiz", label: "Quiz" },
-  { value: "subtitles", label: "Sous-titres" },
-];
 
 export function StudyPanel({
   video,
@@ -16,7 +9,6 @@ export function StudyPanel({
   onSubtitleChange,
   onSubtitleReset,
 }) {
-  const [activeTab, setActiveTab] = useState("lexicon");
   const [quizIndex, setQuizIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
 
@@ -36,23 +28,41 @@ export function StudyPanel({
   }
 
   return (
-    <aside className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb]">
-      <div className="border-b border-[#e3e8e3] p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
-          Etude
-        </p>
-        <h2 className="mt-1 text-lg font-semibold text-[#1d2b22]">
-          {video.title}
-        </h2>
-        <div className="mt-4">
-          <Tabs tabs={tabs} value={activeTab} onChange={setActiveTab} />
+    <>
+      <section className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb] p-4">
+        <SubtitlesPanel
+          rawText={subtitleText}
+          onChange={onSubtitleChange}
+          onReset={onSubtitleReset}
+        />
+      </section>
+      <aside className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb]">
+        <div className="border-b border-[#e3e8e3] p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
+            Lexique
+          </p>
+          <h2 className="mt-1 text-lg font-semibold text-[#1d2b22]">
+            {video.title}
+          </h2>
         </div>
-      </div>
-      <div className="study-scroll max-h-[calc(100vh-190px)] overflow-auto p-4">
-        {activeTab === "lexicon" && (
+        <div className="study-scroll max-h-[calc(100vh-210px)] overflow-auto p-4">
           <LexiconPanel vocabulary={video.vocabulary} />
-        )}
-        {activeTab === "quiz" && (
+        </div>
+      </aside>
+      <section className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb] p-4 xl:col-span-2">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
+              Quiz de comprehension
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-[#1d2b22]">
+              Niveau {video.level}
+            </h2>
+          </div>
+          <p className="text-sm text-[#68756d]">
+            Questions generees depuis les sous-titres importes.
+          </p>
+        </div>
           <QuizPanel
             questions={video.quiz}
             currentIndex={quizIndex}
@@ -61,15 +71,7 @@ export function StudyPanel({
             onNext={nextQuestion}
             onRestart={restartQuiz}
           />
-        )}
-        {activeTab === "subtitles" && (
-          <SubtitlesPanel
-            rawText={subtitleText}
-            onChange={onSubtitleChange}
-            onReset={onSubtitleReset}
-          />
-        )}
-      </div>
-    </aside>
+      </section>
+    </>
   );
 }

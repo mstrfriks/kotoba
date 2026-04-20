@@ -7,6 +7,7 @@ import {
   extractYoutubeId,
   generateStudyMaterials,
   makeVideoTitle,
+  studyLevels,
 } from "./lib/utils";
 
 const STORAGE_KEY = "japonais.studyLibrary.v1";
@@ -14,7 +15,12 @@ const EMPTY_LIBRARY = {
   videos: [],
   selectedVideoId: "",
   subtitleDrafts: {},
+  selectedLevel: "N5",
 };
+
+function isStudyLevel(value) {
+  return studyLevels.some((level) => level.value === value);
+}
 
 function loadStoredLibrary() {
   if (typeof window === "undefined") return EMPTY_LIBRARY;
@@ -42,8 +48,16 @@ function loadStoredLibrary() {
       videos.some((video) => video.id === parsedValue.selectedVideoId)
         ? parsedValue.selectedVideoId
         : videos[0]?.id ?? "";
+    const videoLevel = videos.find(
+      (video) => video.id === selectedVideoId
+    )?.level;
+    const selectedLevel = isStudyLevel(parsedValue?.selectedLevel)
+      ? parsedValue.selectedLevel
+      : isStudyLevel(videoLevel)
+        ? videoLevel
+        : EMPTY_LIBRARY.selectedLevel;
 
-    return { videos, selectedVideoId, subtitleDrafts };
+    return { videos, selectedVideoId, subtitleDrafts, selectedLevel };
   } catch {
     return EMPTY_LIBRARY;
   }
@@ -56,6 +70,7 @@ export default function App() {
     library.selectedVideoId
   );
   const [subtitleDrafts, setSubtitleDrafts] = useState(library.subtitleDrafts);
+  const [selectedLevel, setSelectedLevel] = useState(library.selectedLevel);
   const [importError, setImportError] = useState("");
 
   const selectedVideo = useMemo(
@@ -71,6 +86,7 @@ export default function App() {
           videos,
           selectedVideoId,
           subtitleDrafts,
+          selectedLevel,
         })
       );
     } catch {
@@ -78,7 +94,7 @@ export default function App() {
         "Le navigateur n'a pas pu sauvegarder les donnees localement."
       );
     }
-  }, [videos, selectedVideoId, subtitleDrafts]);
+  }, [videos, selectedVideoId, subtitleDrafts, selectedLevel]);
 
   function addVideo({ youtubeUrl, subtitles }) {
     const youtubeId = extractYoutubeId(youtubeUrl);
@@ -91,7 +107,7 @@ export default function App() {
       .map((subtitle) => subtitle.text)
       .join("\n\n");
     const fileNames = subtitles.map((subtitle) => subtitle.name);
-    const materials = generateStudyMaterials(rawSubtitles);
+    const materials = generateStudyMaterials(rawSubtitles, selectedLevel);
     const id =
       typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
@@ -99,7 +115,7 @@ export default function App() {
     const video = {
       id,
       title: makeVideoTitle(youtubeUrl, fileNames),
-      level: "Auto",
+      level: selectedLevel,
       duration: `${materials.stats.lines} lignes`,
       youtubeId,
       youtubeUrl,
@@ -121,7 +137,7 @@ export default function App() {
 
   function updateSubtitles(value) {
     if (!selectedVideo) return;
-    const materials = generateStudyMaterials(value);
+    const materials = generateStudyMaterials(value, selectedVideo.level);
     setSubtitleDrafts((drafts) => ({
       ...drafts,
       [selectedVideo.id]: value,
@@ -155,16 +171,61 @@ export default function App() {
     );
   }
 
+  function changeLevel(level) {
+    setSelectedLevel(level);
+    if (!selectedVideo) return;
+
+    const subtitles = subtitleDrafts[selectedVideo.id] ?? "";
+    const materials = generateStudyMaterials(subtitles, level);
+    setVideos((currentVideos) =>
+      currentVideos.map((video) =>
+        video.id === selectedVideo.id
+          ? {
+              ...video,
+              level,
+              duration: `${materials.stats.lines} lignes`,
+              vocabulary: materials.vocabulary,
+              quiz: materials.quiz,
+            }
+          : video
+      )
+    );
+  }
+
+  function selectVideo(videoId) {
+    const nextVideo = videos.find((video) => video.id === videoId);
+    setSelectedVideoId(videoId);
+    if (isStudyLevel(nextVideo?.level)) {
+      setSelectedLevel(nextVideo.level);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f7f7f4] p-3 text-[#1d2b22] md:p-5">
       <div className="mx-auto max-w-[1680px]">
-        <header className="mb-4 flex items-end justify-between gap-4">
+        <header className="mb-4 flex flex-wrap items-end justify-between gap-4">
           <h1 className="project-title text-5xl font-semibold uppercase leading-none text-[#1d2b22] md:text-6xl">
             kotoba
           </h1>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
+              Niveau du quiz
+            </span>
+            <select
+              value={selectedLevel}
+              onChange={(event) => changeLevel(event.target.value)}
+              className="h-10 rounded-md border border-[#d9e0da] bg-white px-3 text-sm font-semibold text-[#26332b] outline-none transition focus:border-[#315b40] focus:ring-2 focus:ring-[#d8e7dc]"
+            >
+              {studyLevels.map((level) => (
+                <option key={level.value} value={level.value}>
+                  {level.label} - {level.description}
+                </option>
+              ))}
+            </select>
+          </label>
         </header>
       </div>
-      <div className="mx-auto grid max-w-[1680px] gap-4 xl:grid-cols-[300px_minmax(520px,1fr)_420px]">
+      <div className="mx-auto grid max-w-[1680px] gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
         <div className="grid content-start gap-4">
           <VideoImporter onAddVideo={addVideo} />
           {importError && (
@@ -176,13 +237,21 @@ export default function App() {
             videos={videos}
             selectedVideoId={selectedVideoId}
             subtitleDrafts={subtitleDrafts}
-            onSelect={setSelectedVideoId}
+            onSelect={selectVideo}
           />
         </div>
-        <div className="grid content-start gap-4">
-          {selectedVideo ? (
+        {selectedVideo ? (
+          <div className="grid content-start gap-4 xl:grid-cols-[minmax(420px,1fr)_minmax(360px,0.95fr)_320px]">
             <VideoPlayer video={selectedVideo} />
-          ) : (
+            <StudyPanel
+              video={selectedVideo}
+              subtitleText={subtitleDrafts[selectedVideo.id] ?? ""}
+              onSubtitleChange={updateSubtitles}
+              onSubtitleReset={resetSubtitles}
+            />
+          </div>
+        ) : (
+          <div className="grid content-start gap-4">
             <section className="rounded-lg border border-[#dfe5df] bg-white p-6">
               <h1 className="text-2xl font-semibold text-[#1d2b22]">
                 Ajoute une video YouTube
@@ -193,24 +262,7 @@ export default function App() {
                 partir des sous-titres.
               </p>
             </section>
-          )}
-        </div>
-        {selectedVideo ? (
-          <StudyPanel
-            video={selectedVideo}
-            subtitleText={subtitleDrafts[selectedVideo.id] ?? ""}
-            onSubtitleChange={updateSubtitles}
-            onSubtitleReset={resetSubtitles}
-          />
-        ) : (
-          <aside className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb] p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
-              Etude
-            </p>
-            <h2 className="mt-1 text-lg font-semibold text-[#1d2b22]">
-              Aucun contenu
-            </h2>
-          </aside>
+          </div>
         )}
       </div>
     </main>

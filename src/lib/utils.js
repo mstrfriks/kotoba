@@ -84,6 +84,57 @@ export function makeVideoTitle(youtubeUrl, fileNames = []) {
   return id ? `Video YouTube ${id}` : "Nouvelle video";
 }
 
+export const studyLevels = [
+  { value: "N5", label: "N5", description: "questions simples" },
+  { value: "N4", label: "N4", description: "details et contexte" },
+  { value: "N3", label: "N3", description: "intentions et liens" },
+  { value: "N2", label: "N2", description: "nuances et inference" },
+  { value: "N1", label: "N1", description: "analyse approfondie" },
+];
+
+const levelInstructions = {
+  N5: {
+    mode: "Comprehension directe",
+    prompts: [
+      "Qui ou quoi est mentionne dans cet extrait ?",
+      "Quelle action principale comprends-tu ?",
+      "Quel mot cle aide a comprendre la phrase ?",
+    ],
+  },
+  N4: {
+    mode: "Comprehension du contexte",
+    prompts: [
+      "Que se passe-t-il dans cet extrait ?",
+      "Quelle information importante faut-il retenir ?",
+      "Quelle relation vois-tu entre les idees de la phrase ?",
+    ],
+  },
+  N3: {
+    mode: "Comprehension globale",
+    prompts: [
+      "Quel est le message principal de cet extrait ?",
+      "Pourquoi cette phrase est-elle importante pour la scene ?",
+      "Quelle intention du locuteur peut-on comprendre ?",
+    ],
+  },
+  N2: {
+    mode: "Inference",
+    prompts: [
+      "Quelle nuance ou implication peut-on deduire ?",
+      "Quel changement de situation cet extrait suggere-t-il ?",
+      "Quelle information n'est pas dite directement mais reste probable ?",
+    ],
+  },
+  N1: {
+    mode: "Analyse fine",
+    prompts: [
+      "Analyse la position ou l'attitude implicite du locuteur.",
+      "Quelle nuance discursive structure cet extrait ?",
+      "Comment reformulerais-tu l'idee centrale en francais precis ?",
+    ],
+  },
+};
+
 function splitJapaneseSentences(text) {
   return text
     .replace(/\s+/g, " ")
@@ -94,6 +145,10 @@ function splitJapaneseSentences(text) {
 
 function stripHtml(value) {
   return value.replace(/<[^>]*>/g, "");
+}
+
+function normalizeLevel(level) {
+  return studyLevels.some((item) => item.value === level) ? level : "N5";
 }
 
 function countTerms(text) {
@@ -143,7 +198,33 @@ function findContext(term, sentences, fallbackText) {
   );
 }
 
-export function generateStudyMaterials(rawSrt) {
+function makeComprehensionQuiz(sentences, vocabulary, level, fallbackText) {
+  const profile = levelInstructions[normalizeLevel(level)];
+  const sourceSentences = sentences.length
+    ? sentences
+    : fallbackText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const selectedSentences = sourceSentences.slice(0, 6);
+
+  if (!selectedSentences.length) return [];
+
+  return selectedSentences.map((sentence, index) => {
+    const term = vocabulary.find((item) => sentence.includes(item.japanese));
+    const prompt = profile.prompts[index % profile.prompts.length];
+    const answer = term
+      ? `Reponse attendue: expliquer l'extrait avec "${stripHtml(
+          term.japanese
+        )}" (${term.french}).`
+      : "Reponse attendue: reformuler l'idee principale en francais avec les indices du contexte.";
+
+    return {
+      prompt: `${prompt} (${profile.mode})`,
+      answer,
+      hint: sentence,
+    };
+  });
+}
+
+export function generateStudyMaterials(rawSrt, level = "N5") {
   const cleanedText = cleanSrtText(rawSrt);
   const sentences = splitJapaneseSentences(cleanedText);
   const knownTerms = commonJapaneseTerms
@@ -172,16 +253,12 @@ export function generateStudyMaterials(rawSrt) {
       };
     });
 
-  const quiz = vocabulary.slice(0, 8).map((item) => {
-    const hasTranslation = item.french !== "a traduire";
-    return {
-      prompt: hasTranslation
-        ? `Que signifie ${stripHtml(item.japanese)} ?`
-        : `Retrouve le sens de ${stripHtml(item.japanese)} dans l'extrait.`,
-      answer: hasTranslation ? item.french : item.example,
-      hint: item.example,
-    };
-  });
+  const quiz = makeComprehensionQuiz(
+    sentences,
+    vocabulary,
+    level,
+    cleanedText
+  );
 
   return {
     cleanedText,
