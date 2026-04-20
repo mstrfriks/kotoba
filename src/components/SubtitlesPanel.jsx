@@ -1,9 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
-import { Brain, Copy, Languages, Loader2, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Brain,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Copy,
+  Languages,
+  Loader2,
+  RotateCcw,
+} from "lucide-react";
 import { analyzeScript, translateSentence } from "../lib/api";
 import {
   addFuriganaToText,
   cleanSrtText,
+  cn,
   getTextStats,
   parseSrtSentences,
 } from "../lib/utils";
@@ -98,23 +109,48 @@ function TokenizedSentence({ sentence, analyzedSentence, vocabulary }) {
 
 export function SubtitlesPanel({
   rawText,
+  sentences: providedSentences,
   vocabulary,
   level,
   analysis,
   canUseAi,
+  currentTime = 0,
   onAnalysis,
   onChange,
   onReset,
+  onSeek,
 }) {
   const [translations, setTranslations] = useState(loadTranslationCache);
   const [loadingKey, setLoadingKey] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState("");
+  const [followPlayback, setFollowPlayback] = useState(true);
+  const sentenceRefs = useRef(new Map());
   const cleanedText = cleanSrtText(rawText);
   const stats = getTextStats(cleanedText);
-  const sentences = useMemo(() => parseSrtSentences(rawText), [rawText]);
+  const parsedSentences = useMemo(() => parseSrtSentences(rawText), [rawText]);
+  const sentences = providedSentences ?? parsedSentences;
   const analysisMap = useMemo(() => makeAnalysisMap(analysis), [analysis]);
   const analyzedCount = analysisMap.size;
+  const timedSentenceIndexes = useMemo(
+    () =>
+      sentences
+        .map((sentence, index) => ({ sentence, index }))
+        .filter(({ sentence }) => typeof sentence.startTime === "number"),
+    [sentences]
+  );
+  const activeSentenceIndex = useMemo(() => {
+    const activeSentence = sentences.find(
+      (sentence) =>
+        typeof sentence.startTime === "number" &&
+        typeof sentence.endTime === "number" &&
+        currentTime >= sentence.startTime &&
+        currentTime < sentence.endTime + 0.25
+    );
+    return activeSentence ? sentences.indexOf(activeSentence) : -1;
+  }, [currentTime, sentences]);
+  const activeSentenceId =
+    activeSentenceIndex >= 0 ? sentences[activeSentenceIndex]?.id ?? "" : "";
 
   useEffect(() => {
     try {
@@ -126,6 +162,52 @@ export function SubtitlesPanel({
       setError("Le navigateur n'a pas pu sauvegarder les traductions.");
     }
   }, [translations]);
+
+  useEffect(() => {
+    if (!followPlayback) return;
+
+    const activeElement = sentenceRefs.current.get(activeSentenceId);
+    activeElement?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeSentenceId, followPlayback]);
+
+  function seekToSentence(sentence) {
+    if (typeof sentence?.startTime !== "number") return;
+    onSeek?.(sentence.startTime);
+  }
+
+  function seekByOffset(offset) {
+    if (!timedSentenceIndexes.length) return;
+
+    const currentTimedPosition =
+      activeSentenceIndex >= 0
+        ? timedSentenceIndexes.findIndex(
+            ({ index }) => index === activeSentenceIndex
+          )
+        : -1;
+    const fallbackPosition =
+      offset > 0
+        ? timedSentenceIndexes.findIndex(
+            ({ sentence }) => sentence.startTime > currentTime
+          )
+        : [...timedSentenceIndexes]
+            .reverse()
+            .findIndex(({ sentence }) => sentence.startTime < currentTime);
+    const normalizedFallback =
+      fallbackPosition < 0
+        ? offset > 0
+          ? timedSentenceIndexes.length - 1
+          : 0
+        : offset > 0
+          ? fallbackPosition
+          : timedSentenceIndexes.length - 1 - fallbackPosition;
+    const basePosition =
+      currentTimedPosition >= 0 ? currentTimedPosition : normalizedFallback;
+    const nextPosition = Math.min(
+      timedSentenceIndexes.length - 1,
+      Math.max(0, activeSentenceIndex >= 0 ? basePosition + offset : basePosition)
+    );
+    seekToSentence(timedSentenceIndexes[nextPosition]?.sentence);
+  }
 
   async function copyCleanedText() {
     if (!cleanedText) return;
@@ -178,11 +260,51 @@ export function SubtitlesPanel({
         <div>
           <h2 className="font-semibold text-[#1d2b22]">Sous-titres</h2>
           <p className="mt-1 text-xs text-[#718078]">
+            {stats.sentences} phrase{stats.sentences > 1 ? "s" : ""} ·{" "}
             {stats.lines} ligne{stats.lines > 1 ? "s" : ""} ·{" "}
             {stats.characters} caractere{stats.characters > 1 ? "s" : ""}
           </p>
         </div>
         <div className="flex gap-2">
+          <div className="flex items-center rounded-md border border-[#d7ddd8] bg-white">
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-l-md text-[#526058] transition hover:bg-[#f0f3f0] disabled:pointer-events-none disabled:opacity-40"
+              onClick={() => seekByOffset(-1)}
+              disabled={!timedSentenceIndexes.length}
+              title="Passage precedent"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center text-[#526058] transition hover:bg-[#f0f3f0] disabled:pointer-events-none disabled:opacity-40"
+              onClick={() => seekByOffset(1)}
+              disabled={!timedSentenceIndexes.length}
+              title="Passage suivant"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-8 items-center gap-1 rounded-r-md border-l border-[#d7ddd8] px-2 text-xs font-medium transition",
+                followPlayback
+                  ? "bg-[#eef5ef] text-[#315b40]"
+                  : "text-[#526058] hover:bg-[#f0f3f0]"
+              )}
+              onClick={() => setFollowPlayback((value) => !value)}
+              title="Suivre automatiquement le passage actif."
+            >
+              <Check
+                className={cn(
+                  "h-3.5 w-3.5",
+                  followPlayback ? "opacity-100" : "opacity-0"
+                )}
+              />
+              Suivi
+            </button>
+          </div>
           <Button
             size="sm"
             variant="secondary"
@@ -231,14 +353,32 @@ export function SubtitlesPanel({
               const translation =
                 analyzedSentence?.translationFr ?? translations[translationKey];
               const isLoading = loadingKey === translationKey;
+              const isActive = activeSentenceId === sentence.id;
 
               return (
               <article
                 key={sentence.id}
-                className="rounded-md border border-[#e6eae6] bg-white px-3 py-2"
+                ref={(element) => {
+                  if (element) {
+                    sentenceRefs.current.set(sentence.id, element);
+                  } else {
+                    sentenceRefs.current.delete(sentence.id);
+                  }
+                }}
+                className={cn(
+                  "rounded-md border px-3 py-2 transition",
+                  isActive
+                    ? "border-[#315b40] bg-[#f1f7f2] shadow-sm"
+                    : "border-[#e6eae6] bg-white"
+                )}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <p className="pt-1 text-xs font-semibold text-[#9aa39d]">
+                  <p
+                    className={cn(
+                      "pt-1 text-xs font-semibold",
+                      isActive ? "text-[#315b40]" : "text-[#9aa39d]"
+                    )}
+                  >
                     {String(index + 1).padStart(2, "0")}
                   </p>
                   <div className="min-w-0 flex-1">
@@ -256,9 +396,16 @@ export function SubtitlesPanel({
                 </div>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 pl-7">
                   {sentence.time ? (
-                    <p className="text-[11px] font-medium text-[#9aa39d]">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded text-left text-[11px] font-medium text-[#7a857e] transition hover:text-[#315b40] disabled:pointer-events-none"
+                      onClick={() => onSeek?.(sentence.startTime)}
+                      disabled={typeof sentence.startTime !== "number"}
+                      title="Aller a ce passage dans la video."
+                    >
+                      <Clock3 className="h-3 w-3" />
                       {sentence.time}
-                    </p>
+                    </button>
                   ) : (
                     <span />
                   )}

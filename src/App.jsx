@@ -11,6 +11,7 @@ import {
   extractYoutubeId,
   generateStudyMaterials,
   makeVideoTitle,
+  parseSrtSentences,
   studyLevels,
 } from "./lib/utils";
 
@@ -35,6 +36,16 @@ function hasQcmQuiz(video) {
           Number.isInteger(question?.answerIndex)
       )
     : false;
+}
+
+function formatStudyDuration(stats) {
+  const sentenceCount = stats?.sentences ?? 0;
+  if (sentenceCount > 0) {
+    return `${sentenceCount} phrase${sentenceCount > 1 ? "s" : ""}`;
+  }
+
+  const lineCount = stats?.lines ?? 0;
+  return `${lineCount} ligne${lineCount > 1 ? "s" : ""}`;
 }
 
 function loadStoredLibrary() {
@@ -86,7 +97,7 @@ function loadStoredLibrary() {
       return {
         ...video,
         level,
-        duration: `${materials.stats.lines} lignes`,
+        duration: formatStudyDuration(materials.stats),
         vocabulary: materials.vocabulary,
         quiz: materials.quiz,
       };
@@ -116,6 +127,8 @@ export default function App() {
   );
   const [selectedLevel, setSelectedLevel] = useState(library.selectedLevel);
   const [importError, setImportError] = useState("");
+  const [playbackTime, setPlaybackTime] = useState(0);
+  const [seekRequest, setSeekRequest] = useState(null);
   const [apiHealth, setApiHealth] = useState({
     status: "checking",
     hasOpenAiKey: false,
@@ -125,6 +138,24 @@ export default function App() {
   const selectedVideo = useMemo(
     () => videos.find((video) => video.id === selectedVideoId) ?? null,
     [videos, selectedVideoId]
+  );
+  const selectedSubtitleText = selectedVideo
+    ? subtitleDrafts[selectedVideo.id] ?? ""
+    : "";
+  const selectedSubtitleSentences = useMemo(
+    () => parseSrtSentences(selectedSubtitleText),
+    [selectedSubtitleText]
+  );
+  const activeSubtitle = useMemo(
+    () =>
+      selectedSubtitleSentences.find(
+        (sentence) =>
+          typeof sentence.startTime === "number" &&
+          typeof sentence.endTime === "number" &&
+          playbackTime >= sentence.startTime &&
+          playbackTime < sentence.endTime + 0.25
+      ) ?? null,
+    [playbackTime, selectedSubtitleSentences]
   );
 
   useEffect(() => {
@@ -202,7 +233,6 @@ export default function App() {
       id,
       title: makeVideoTitle(youtubeUrl, fileNames),
       level: selectedLevel,
-      duration: `${materials.stats.lines} lignes`,
       youtubeId,
       youtubeUrl,
       summary: `${fileNames.length} fichier${
@@ -212,6 +242,7 @@ export default function App() {
       vocabulary: materials.vocabulary,
       quiz: materials.quiz,
       fileNames,
+      duration: formatStudyDuration(materials.stats),
     };
 
     setImportError("");
@@ -241,7 +272,7 @@ export default function App() {
         video.id === selectedVideo.id
           ? {
               ...video,
-              duration: `${materials.stats.lines} lignes`,
+              duration: formatStudyDuration(materials.stats),
               vocabulary: materials.vocabulary,
               quiz: materials.quiz,
             }
@@ -281,7 +312,7 @@ export default function App() {
           ? {
               ...video,
               level,
-              duration: `${materials.stats.lines} lignes`,
+              duration: formatStudyDuration(materials.stats),
               vocabulary: materials.vocabulary,
               quiz: materials.quiz,
             }
@@ -327,6 +358,10 @@ export default function App() {
 
   function showLibrary() {
     setSelectedVideoId("");
+  }
+
+  function seekToSubtitle(time) {
+    setSeekRequest({ time, requestedAt: Date.now() });
   }
 
   return (
@@ -385,21 +420,29 @@ export default function App() {
         {selectedVideo ? (
           <div className="grid content-start gap-4 xl:grid-cols-[minmax(420px,0.9fr)_minmax(620px,1.25fr)]">
             <div className="grid content-start gap-4">
-              <VideoPlayer video={selectedVideo} />
+              <VideoPlayer
+                video={selectedVideo}
+                activeSubtitle={activeSubtitle}
+                onTimeChange={setPlaybackTime}
+                seekRequest={seekRequest}
+              />
               <SubtitlesPanel
-                rawText={subtitleDrafts[selectedVideo.id] ?? ""}
+                rawText={selectedSubtitleText}
+                sentences={selectedSubtitleSentences}
                 vocabulary={selectedVideo.vocabulary}
                 level={selectedVideo.level}
                 analysis={analysisByVideoId[selectedVideo.id]}
                 canUseAi={canUseAi}
+                currentTime={playbackTime}
                 onAnalysis={saveScriptAnalysis}
                 onChange={updateSubtitles}
                 onReset={resetSubtitles}
+                onSeek={seekToSubtitle}
               />
             </div>
             <StudyPanel
               video={selectedVideo}
-              script={cleanSrtText(subtitleDrafts[selectedVideo.id] ?? "")}
+              script={cleanSrtText(selectedSubtitleText)}
               canUseAi={canUseAi}
               onQuizGenerated={saveGeneratedQuiz}
             />

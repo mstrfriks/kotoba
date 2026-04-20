@@ -177,16 +177,18 @@ const kanjiHiraganaReadings = {
 export function cleanSrtText(value) {
   return value
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => stripSubtitleMarkup(line).trim())
     .filter((line) => line && !/^\d+$/.test(line) && !line.includes("-->"))
     .join("\n");
 }
 
 export function getTextStats(value) {
   const clean = value.trim();
+  const sentences = splitJapaneseSentences(clean);
   return {
     characters: clean.length,
     lines: clean ? clean.split(/\r?\n/).filter(Boolean).length : 0,
+    sentences: sentences.length,
   };
 }
 
@@ -204,7 +206,7 @@ export function parseSrtCues(value) {
       return {
         id: `${index}-${lines[timeIndex]}`,
         time: lines[timeIndex].replace(/\s+/g, " "),
-        sentences: splitJapaneseSentences(lines.slice(timeIndex + 1).join(" ")),
+        sentences: splitJapaneseSentences(lines.slice(timeIndex + 1).join("\n")),
       };
     })
     .filter((cue) => cue?.sentences.length);
@@ -223,7 +225,7 @@ export function parseSrtCues(value) {
 }
 
 function parseSrtTime(value) {
-  const match = value.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+  const match = value.match(/(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})/);
   if (!match) return null;
 
   const [, hours, minutes, seconds, milliseconds] = match;
@@ -250,12 +252,50 @@ function formatSrtTime(seconds) {
 }
 
 function splitTimedText(text) {
-  return splitJapaneseSentences(text).length
-    ? splitJapaneseSentences(text)
+  const sentences = splitJapaneseSentences(text);
+  return sentences.length
+    ? sentences
     : text
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean);
+}
+
+function getTextWeight(value) {
+  const compact = value.replace(/\s+/g, "");
+  return Math.max(1, compact.length);
+}
+
+function distributeSentenceTimes(sentences, startTime, endTime) {
+  if (
+    sentences.length <= 1 ||
+    typeof startTime !== "number" ||
+    typeof endTime !== "number" ||
+    Number.isNaN(startTime) ||
+    Number.isNaN(endTime) ||
+    endTime <= startTime
+  ) {
+    return sentences.map((sentence) => ({ sentence, startTime, endTime }));
+  }
+
+  const weights = sentences.map(getTextWeight);
+  const totalWeight = weights.reduce((total, weight) => total + weight, 0);
+  const duration = endTime - startTime;
+  let cursor = startTime;
+
+  return sentences.map((sentence, index) => {
+    const nextTime =
+      index === sentences.length - 1
+        ? endTime
+        : cursor + duration * (weights[index] / totalWeight);
+    const timedSentence = {
+      sentence,
+      startTime: cursor,
+      endTime: nextTime,
+    };
+    cursor = nextTime;
+    return timedSentence;
+  });
 }
 
 export function parseSrtSentences(value) {
@@ -275,20 +315,31 @@ export function parseSrtSentences(value) {
       .map((part) => part.trim());
     const startTime = parseSrtTime(rawStart);
     const endTime = parseSrtTime(rawEnd);
-    const text = stripHtml(lines.slice(timeIndex + 1).join(" "))
-      .replace(/\s+/g, " ")
+    const text = stripSubtitleMarkup(lines.slice(timeIndex + 1).join("\n"))
+      .replace(/[ \t]+/g, " ")
       .trim();
 
-    for (const [sentenceIndex, sentence] of splitTimedText(text).entries()) {
+    const timedSentences = distributeSentenceTimes(
+      splitTimedText(text),
+      startTime,
+      endTime
+    );
+
+    for (const [
+      sentenceIndex,
+      { sentence, startTime: sentenceStartTime, endTime: sentenceEndTime },
+    ] of timedSentences.entries()) {
       sentences.push({
         id: `${blockIndex}-${sentenceIndex}-${rawStart}`,
         text: sentence,
-        startTime,
-        endTime,
+        startTime: sentenceStartTime,
+        endTime: sentenceEndTime,
         time:
-          startTime === null || endTime === null
+          sentenceStartTime === null || sentenceEndTime === null
             ? lines[timeIndex].replace(/\s+/g, " ")
-            : `${formatSrtTime(startTime)} --> ${formatSrtTime(endTime)}`,
+            : `${formatSrtTime(sentenceStartTime)} --> ${formatSrtTime(
+                sentenceEndTime
+              )}`,
       });
     }
   }
@@ -441,9 +492,19 @@ const levelInstructions = {
 };
 
 function splitJapaneseSentences(text) {
-  return text
-    .replace(/\s+/g, " ")
-    .split(/(?<=[。！？!?])\s*/)
+  const normalized = stripSubtitleMarkup(text)
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+
+  if (!normalized) return [];
+
+  return normalized
+    .split(/\n+/)
+    .flatMap(
+      (line) =>
+        line.match(/[^。！？!?\n]+[。！？!?」』）)]*|[^。！？!?\n]+$/g) ?? []
+    )
     .map((sentence) => sentence.trim())
     .filter(Boolean);
 }
@@ -452,15 +513,18 @@ function stripHtml(value) {
   return value.replace(/<[^>]*>/g, "");
 }
 
+function stripSubtitleMarkup(value) {
+  return stripHtml(value)
+    .replace(/\{\\[^}]+\}/g, "")
+    .replace(/&nbsp;/g, " ");
+}
+
 function normalizeLevel(level) {
   return studyLevels.some((item) => item.value === level) ? level : "N5";
 }
 
 function countTerms(text) {
   const counts = new Map();
-  const matches =
-    text.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー々]+/gu) ??
-    [];
   const ignored = new Set([
     "これ",
     "それ",
@@ -483,11 +547,43 @@ function countTerms(text) {
     "まで",
     "こと",
     "もの",
+    "よう",
+    "ため",
+    "さん",
+    "ちゃん",
+    "ます",
+    "でした",
+    "ません",
   ]);
 
-  for (const match of matches) {
-    if (match.length < 2 || ignored.has(match)) continue;
-    counts.set(match, (counts.get(match) ?? 0) + 1);
+  function addTerm(term, weight = 1) {
+    const cleanTerm = term.trim();
+    if (cleanTerm.length < 2 || ignored.has(cleanTerm)) return;
+    counts.set(cleanTerm, (counts.get(cleanTerm) ?? 0) + weight);
+  }
+
+  for (const match of text.match(/[\p{Script=Han}々]{2,}/gu) ?? []) {
+    addTerm(match, 3);
+
+    if (match.length > 4) {
+      for (let index = 0; index <= match.length - 2; index += 1) {
+        addTerm(match.slice(index, index + 2), 1);
+      }
+    }
+  }
+
+  for (const match of text.match(/[\p{Script=Katakana}ー]{3,}/gu) ?? []) {
+    addTerm(match, 2);
+  }
+
+  for (const chunk of text.match(/[\p{Script=Han}\p{Script=Hiragana}々]+/gu) ?? []) {
+    if (!/\p{Script=Han}/u.test(chunk)) continue;
+    const terms =
+      chunk.match(/[\p{Script=Han}々]{1,}[\p{Script=Hiragana}]{0,3}/gu) ??
+      [];
+    for (const term of terms) {
+      addTerm(term, term.length >= 3 ? 2 : 1);
+    }
   }
 
   return [...counts.entries()]
@@ -524,12 +620,26 @@ function rotateItems(items, offset) {
   return [...items.slice(offset), ...items.slice(0, offset)];
 }
 
+function pickEvenly(items, limit) {
+  if (items.length <= limit) return items;
+
+  const picked = [];
+  const step = (items.length - 1) / (limit - 1);
+  for (let index = 0; index < limit; index += 1) {
+    picked.push(items[Math.round(index * step)]);
+  }
+  return picked;
+}
+
 function makeComprehensionQuiz(sentences, vocabulary, level, fallbackText) {
   const prompt = levelInstructions[normalizeLevel(level)];
   const sourceSentences = sentences.length
     ? sentences
     : fallbackText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const selectedSentences = sourceSentences.slice(0, 6);
+  const selectedSentences = pickEvenly(
+    sourceSentences.filter((sentence) => sentence.length >= 4),
+    8
+  );
   const topics = uniqueItems([
     ...selectedSentences.map((sentence) => findSentenceTopic(sentence, vocabulary)),
     ...vocabulary.map((item) => stripHtml(item.japanese)),
@@ -556,13 +666,19 @@ function makeComprehensionQuiz(sentences, vocabulary, level, fallbackText) {
       sentence,
       choices: rotatedChoices,
       answerIndex: rotatedChoices.indexOf(correctAnswer),
+      explanation: `Generation locale : le choix correct reprend le theme detecte dans la phrase, "${topic}".`,
     };
   });
 }
 
 export function generateStudyMaterials(rawSrt, level = "N5") {
   const cleanedText = cleanSrtText(rawSrt);
-  const sentences = splitJapaneseSentences(cleanedText);
+  const parsedSentences = parseSrtSentences(rawSrt).map(
+    (sentence) => sentence.text
+  );
+  const sentences = parsedSentences.length
+    ? parsedSentences
+    : splitJapaneseSentences(cleanedText);
   const knownTerms = commonJapaneseTerms
     .filter((term) => cleanedText.includes(term.japanese))
     .map((term) => [term.japanese, term]);
@@ -600,6 +716,9 @@ export function generateStudyMaterials(rawSrt, level = "N5") {
     cleanedText,
     vocabulary,
     quiz,
-    stats: getTextStats(cleanedText),
+    stats: {
+      ...getTextStats(cleanedText),
+      sentences: sentences.length,
+    },
   };
 }
