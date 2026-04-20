@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { VideoList } from "./components/VideoList";
 import { VideoPlayer } from "./components/VideoPlayer";
 import { StudyPanel } from "./components/StudyPanel";
 import { SubtitlesPanel } from "./components/SubtitlesPanel";
-import { VideoImporter } from "./components/VideoImporter";
+import { HomeDashboard } from "./components/HomeDashboard";
 import { Button } from "./components/ui/Button";
 import { getApiHealth } from "./lib/api";
 import {
@@ -414,7 +413,7 @@ export default function App() {
         className={
           selectedVideo
             ? "mx-auto grid max-w-[1680px] gap-4"
-            : "mx-auto grid max-w-[1680px] gap-4 xl:grid-cols-[300px_minmax(0,1fr)]"
+            : ""
         }
       >
         {selectedVideo ? (
@@ -448,34 +447,13 @@ export default function App() {
             />
           </div>
         ) : (
-          <>
-            <div className="grid content-start gap-4">
-              <VideoImporter onAddVideo={addVideo} />
-              {importError && (
-                <div className="rounded-md border border-[#f1c8c2] bg-[#fff6f4] p-3 text-sm font-medium text-[#a13d32]">
-                  {importError}
-                </div>
-              )}
-              <VideoList
-                videos={videos}
-                selectedVideoId={selectedVideoId}
-                subtitleDrafts={subtitleDrafts}
-                onSelect={selectVideo}
-              />
-            </div>
-            <section className="rounded-lg border border-[#dfe5df] bg-white p-6">
-              <h1 className="text-2xl font-semibold text-[#1d2b22]">
-                {videos.length
-                  ? "Selectionne une video"
-                  : "Ajoute une video YouTube"}
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#59665e]">
-                {videos.length
-                  ? "Choisis une video dans le parcours pour ouvrir la lecture, les sous-titres et le quiz."
-                  : "La liste est vide au depart. Entre un lien YouTube, importe les fichiers SRT, puis l'application creera le lexique et le quiz a partir des sous-titres."}
-              </p>
-            </section>
-          </>
+          <HomeDashboard
+            videos={videos}
+            subtitleDrafts={subtitleDrafts}
+            importError={importError}
+            onAddVideo={addVideo}
+            onSelectVideo={selectVideo}
+          />
         )}
       </div>
     </main>

@@ -33,6 +33,10 @@ rt {
   scrollbar-color: #c7cec8 transparent;
 }
 
+.overflow-anywhere {
+  overflow-wrap: anywhere;
+}
+
 .project-title {
   font-family: "Oswald", Impact, "Arial Narrow", sans-serif;
 }
