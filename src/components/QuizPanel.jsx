@@ -16,6 +16,7 @@ export function QuizPanel({
   const question = questions[currentIndex];
   const isDone = currentIndex >= total;
   const progress = total ? Math.min((currentIndex / total) * 100, 100) : 0;
+  const choices = Array.isArray(question?.choices) ? question.choices : [];
   const isCorrect = selectedChoice === question?.answerIndex;
 
   if (!total) {
@@ -71,7 +72,7 @@ export function QuizPanel({
         </p>
       </div>
       <div className="mt-5 grid gap-2">
-        {question.choices.map((choice, index) => {
+        {choices.map((choice, index) => {
           const isSelected = selectedChoice === index;
           const isAnswer = question.answerIndex === index;
           return (

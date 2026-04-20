@@ -24,6 +24,16 @@ function isStudyLevel(value) {
   return studyLevels.some((level) => level.value === value);
 }
 
+function hasQcmQuiz(video) {
+  return Array.isArray(video?.quiz)
+    ? video.quiz.every(
+        (question) =>
+          Array.isArray(question?.choices) &&
+          Number.isInteger(question?.answerIndex)
+      )
+    : false;
+}
+
 function loadStoredLibrary() {
   if (typeof window === "undefined") return EMPTY_LIBRARY;
 
@@ -58,8 +68,22 @@ function loadStoredLibrary() {
       : isStudyLevel(videoLevel)
         ? videoLevel
         : EMPTY_LIBRARY.selectedLevel;
+    const migratedVideos = videos.map((video) => {
+      if (hasQcmQuiz(video)) return video;
 
-    return { videos, selectedVideoId, subtitleDrafts, selectedLevel };
+      const level = isStudyLevel(video.level) ? video.level : selectedLevel;
+      const subtitles = subtitleDrafts[video.id] ?? "";
+      const materials = generateStudyMaterials(subtitles, level);
+      return {
+        ...video,
+        level,
+        duration: `${materials.stats.lines} lignes`,
+        vocabulary: materials.vocabulary,
+        quiz: materials.quiz,
+      };
+    });
+
+    return { videos: migratedVideos, selectedVideoId, subtitleDrafts, selectedLevel };
   } catch {
     return EMPTY_LIBRARY;
   }
