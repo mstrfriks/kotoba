@@ -157,6 +157,13 @@ export default function App() {
 
   return (
     <main className="min-h-screen bg-[#f7f7f4] p-3 text-[#1d2b22] md:p-5">
+      <div className="mx-auto max-w-[1680px]">
+        <header className="mb-4 flex items-end justify-between gap-4">
+          <h1 className="project-title text-5xl font-semibold uppercase leading-none text-[#1d2b22] md:text-6xl">
+            kotoba
+          </h1>
+        </header>
+      </div>
       <div className="mx-auto grid max-w-[1680px] gap-4 xl:grid-cols-[300px_minmax(520px,1fr)_420px]">
         <div className="grid content-start gap-4">
           <VideoImporter onAddVideo={addVideo} />

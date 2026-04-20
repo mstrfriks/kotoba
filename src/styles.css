@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -30,4 +31,8 @@ rt {
 .study-scroll {
   scrollbar-width: thin;
   scrollbar-color: #c7cec8 transparent;
+}
+
+.project-title {
+  font-family: "Oswald", Impact, "Arial Narrow", sans-serif;
 }
