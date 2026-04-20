@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { VideoList } from "./components/VideoList";
 import { VideoPlayer } from "./components/VideoPlayer";
 import { StudyPanel } from "./components/StudyPanel";
+import { SubtitlesPanel } from "./components/SubtitlesPanel";
 import { VideoImporter } from "./components/VideoImporter";
+import { Button } from "./components/ui/Button";
 import {
   extractYoutubeId,
   generateStudyMaterials,
@@ -200,6 +202,10 @@ export default function App() {
     }
   }
 
+  function showLibrary() {
+    setSelectedVideoId("");
+  }
+
   return (
     <main className="min-h-screen bg-[#f7f7f4] p-3 text-[#1d2b22] md:p-5">
       <div className="mx-auto max-w-[1680px]">
@@ -207,62 +213,82 @@ export default function App() {
           <h1 className="project-title text-5xl font-semibold uppercase leading-none text-[#1d2b22] md:text-6xl">
             kotoba
           </h1>
-          <label className="grid gap-1.5">
-            <span className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
-              Niveau du quiz
-            </span>
-            <select
-              value={selectedLevel}
-              onChange={(event) => changeLevel(event.target.value)}
-              className="h-10 rounded-md border border-[#d9e0da] bg-white px-3 text-sm font-semibold text-[#26332b] outline-none transition focus:border-[#315b40] focus:ring-2 focus:ring-[#d8e7dc]"
-            >
-              {studyLevels.map((level) => (
-                <option key={level.value} value={level.value}>
-                  {level.label} - {level.description}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex flex-wrap items-end gap-3">
+            {selectedVideo && (
+              <Button variant="secondary" onClick={showLibrary}>
+                Parcours
+              </Button>
+            )}
+            <label className="grid gap-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
+                Niveau du quiz
+              </span>
+              <select
+                value={selectedLevel}
+                onChange={(event) => changeLevel(event.target.value)}
+                className="h-10 rounded-md border border-[#d9e0da] bg-white px-3 text-sm font-semibold text-[#26332b] outline-none transition focus:border-[#315b40] focus:ring-2 focus:ring-[#d8e7dc]"
+              >
+                {studyLevels.map((level) => (
+                  <option key={level.value} value={level.value}>
+                    {level.label} - {level.description}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </header>
       </div>
-      <div className="mx-auto grid max-w-[1680px] gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <div className="grid content-start gap-4">
-          <VideoImporter onAddVideo={addVideo} />
-          {importError && (
-            <div className="rounded-md border border-[#f1c8c2] bg-[#fff6f4] p-3 text-sm font-medium text-[#a13d32]">
-              {importError}
-            </div>
-          )}
-          <VideoList
-            videos={videos}
-            selectedVideoId={selectedVideoId}
-            subtitleDrafts={subtitleDrafts}
-            onSelect={selectVideo}
-          />
-        </div>
+      <div
+        className={
+          selectedVideo
+            ? "mx-auto grid max-w-[1680px] gap-4"
+            : "mx-auto grid max-w-[1680px] gap-4 xl:grid-cols-[300px_minmax(0,1fr)]"
+        }
+      >
         {selectedVideo ? (
-          <div className="grid content-start gap-4 xl:grid-cols-[minmax(420px,1fr)_minmax(360px,0.95fr)_320px]">
-            <VideoPlayer video={selectedVideo} />
+          <div className="grid content-start gap-4 xl:grid-cols-[minmax(420px,0.9fr)_minmax(620px,1.25fr)]">
+            <div className="grid content-start gap-4">
+              <VideoPlayer video={selectedVideo} />
+              <SubtitlesPanel
+                rawText={subtitleDrafts[selectedVideo.id] ?? ""}
+                vocabulary={selectedVideo.vocabulary}
+                onChange={updateSubtitles}
+                onReset={resetSubtitles}
+              />
+            </div>
             <StudyPanel
               video={selectedVideo}
-              subtitleText={subtitleDrafts[selectedVideo.id] ?? ""}
-              onSubtitleChange={updateSubtitles}
-              onSubtitleReset={resetSubtitles}
             />
           </div>
         ) : (
-          <div className="grid content-start gap-4">
+          <>
+            <div className="grid content-start gap-4">
+              <VideoImporter onAddVideo={addVideo} />
+              {importError && (
+                <div className="rounded-md border border-[#f1c8c2] bg-[#fff6f4] p-3 text-sm font-medium text-[#a13d32]">
+                  {importError}
+                </div>
+              )}
+              <VideoList
+                videos={videos}
+                selectedVideoId={selectedVideoId}
+                subtitleDrafts={subtitleDrafts}
+                onSelect={selectVideo}
+              />
+            </div>
             <section className="rounded-lg border border-[#dfe5df] bg-white p-6">
               <h1 className="text-2xl font-semibold text-[#1d2b22]">
-                Ajoute une video YouTube
+                {videos.length
+                  ? "Selectionne une video"
+                  : "Ajoute une video YouTube"}
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[#59665e]">
-                La liste est vide au depart. Entre un lien YouTube, importe les
-                fichiers SRT, puis l'application creera le lexique et le quiz a
-                partir des sous-titres.
+                {videos.length
+                  ? "Choisis une video dans le parcours pour ouvrir la lecture, les sous-titres et le quiz."
+                  : "La liste est vide au depart. Entre un lien YouTube, importe les fichiers SRT, puis l'application creera le lexique et le quiz a partir des sous-titres."}
               </p>
             </section>
-          </div>
+          </>
         )}
       </div>
     </main>

@@ -55,6 +55,71 @@ export function getTextStats(value) {
   };
 }
 
+export function parseSrtCues(value) {
+  const blocks = value
+    .split(/\r?\n\s*\r?\n/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const cues = blocks
+    .map((block, index) => {
+      const lines = block.split(/\r?\n/).map((line) => line.trim());
+      const timeIndex = lines.findIndex((line) => line.includes("-->"));
+      if (timeIndex < 0) return null;
+
+      return {
+        id: `${index}-${lines[timeIndex]}`,
+        time: lines[timeIndex].replace(/\s+/g, " "),
+        text: lines.slice(timeIndex + 1).join("\n").trim(),
+      };
+    })
+    .filter((cue) => cue?.text);
+
+  if (cues.length) return cues;
+
+  return cleanSrtText(value)
+    .split(/\r?\n/)
+    .map((line, index) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => ({
+      id: `line-${index}`,
+      time: "",
+      text: line,
+    }));
+}
+
+function escapeHtml(value) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function addFuriganaToText(value, vocabulary = []) {
+  const readings = new Map(
+    [...commonJapaneseTerms, ...vocabulary]
+      .filter((item) => item?.japanese && item?.reading)
+      .filter((item) => item.reading !== "a completer")
+      .map((item) => [stripHtml(item.japanese), item.reading])
+  );
+  const terms = [...readings.keys()].sort((a, b) => b.length - a.length);
+
+  if (!terms.length) return escapeHtml(value);
+
+  const pattern = new RegExp(terms.map(escapeRegExp).join("|"), "gu");
+  return escapeHtml(value).replace(pattern, (match) => {
+    const reading = readings.get(match);
+    return reading
+      ? `<ruby>${match}<rt>${escapeHtml(reading)}</rt></ruby>`
+      : match;
+  });
+}
+
 export function extractYoutubeId(value) {
   const input = value.trim();
   if (/^[a-zA-Z0-9_-]{11}$/.test(input)) return input;

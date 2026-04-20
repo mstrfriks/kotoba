@@ -1,14 +1,7 @@
 import { useEffect, useState } from "react";
 import { LexiconPanel } from "./LexiconPanel";
 import { QuizPanel } from "./QuizPanel";
-import { SubtitlesPanel } from "./SubtitlesPanel";
-
-export function StudyPanel({
-  video,
-  subtitleText,
-  onSubtitleChange,
-  onSubtitleReset,
-}) {
+export function StudyPanel({ video }) {
   const [quizIndex, setQuizIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
 
@@ -28,15 +21,8 @@ export function StudyPanel({
   }
 
   return (
-    <>
-      <section className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb] p-4">
-        <SubtitlesPanel
-          rawText={subtitleText}
-          onChange={onSubtitleChange}
-          onReset={onSubtitleReset}
-        />
-      </section>
-      <aside className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb]">
+    <aside className="grid content-start gap-4 xl:grid-cols-[minmax(160px,1fr)_minmax(420px,3fr)]">
+      <section className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb]">
         <div className="border-b border-[#e3e8e3] p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
             Lexique
@@ -48,8 +34,8 @@ export function StudyPanel({
         <div className="study-scroll max-h-[calc(100vh-210px)] overflow-auto p-4">
           <LexiconPanel vocabulary={video.vocabulary} />
         </div>
-      </aside>
-      <section className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb] p-4 xl:col-span-2">
+      </section>
+      <section className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb] p-4">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
@@ -72,6 +58,6 @@ export function StudyPanel({
             onRestart={restartQuiz}
           />
       </section>
-    </>
+    </aside>
   );
 }
