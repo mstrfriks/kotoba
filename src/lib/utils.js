@@ -222,6 +222,91 @@ export function parseSrtCues(value) {
     }));
 }
 
+function parseSrtTime(value) {
+  const match = value.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+  if (!match) return null;
+
+  const [, hours, minutes, seconds, milliseconds] = match;
+  return (
+    Number(hours) * 3600 +
+    Number(minutes) * 60 +
+    Number(seconds) +
+    Number(milliseconds) / 1000
+  );
+}
+
+function formatSrtTime(seconds) {
+  if (typeof seconds !== "number" || Number.isNaN(seconds)) return "";
+
+  const totalMilliseconds = Math.max(0, Math.round(seconds * 1000));
+  const milliseconds = String(totalMilliseconds % 1000).padStart(3, "0");
+  const totalSeconds = Math.floor(totalMilliseconds / 1000);
+  const displaySeconds = String(totalSeconds % 60).padStart(2, "0");
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const displayMinutes = String(totalMinutes % 60).padStart(2, "0");
+  const displayHours = String(Math.floor(totalMinutes / 60)).padStart(2, "0");
+
+  return `${displayHours}:${displayMinutes}:${displaySeconds},${milliseconds}`;
+}
+
+function splitTimedText(text) {
+  return splitJapaneseSentences(text).length
+    ? splitJapaneseSentences(text)
+    : text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+}
+
+export function parseSrtSentences(value) {
+  const blocks = value
+    .split(/\r?\n\s*\r?\n/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const sentences = [];
+
+  for (const [blockIndex, block] of blocks.entries()) {
+    const lines = block.split(/\r?\n/).map((line) => line.trim());
+    const timeIndex = lines.findIndex((line) => line.includes("-->"));
+    if (timeIndex < 0) continue;
+
+    const [rawStart = "", rawEnd = ""] = lines[timeIndex]
+      .split("-->")
+      .map((part) => part.trim());
+    const startTime = parseSrtTime(rawStart);
+    const endTime = parseSrtTime(rawEnd);
+    const text = stripHtml(lines.slice(timeIndex + 1).join(" "))
+      .replace(/\s+/g, " ")
+      .trim();
+
+    for (const [sentenceIndex, sentence] of splitTimedText(text).entries()) {
+      sentences.push({
+        id: `${blockIndex}-${sentenceIndex}-${rawStart}`,
+        text: sentence,
+        startTime,
+        endTime,
+        time:
+          startTime === null || endTime === null
+            ? lines[timeIndex].replace(/\s+/g, " ")
+            : `${formatSrtTime(startTime)} --> ${formatSrtTime(endTime)}`,
+      });
+    }
+  }
+
+  if (sentences.length) return sentences;
+
+  return cleanSrtText(value)
+    .split(/\r?\n/)
+    .flatMap((line) => splitTimedText(line))
+    .map((text, index) => ({
+      id: `line-${index}`,
+      text,
+      startTime: null,
+      endTime: null,
+      time: "",
+    }));
+}
+
 function escapeHtml(value) {
   return value
     .replace(/&/g, "&amp;")

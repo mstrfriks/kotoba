@@ -1,17 +1,22 @@
 {
   "scripts": {
     "dev": "vite",
+    "server": "node server/index.js",
+    "app": "concurrently \"npm run server\" \"npm run dev\"",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@tailwindcss/vite": "latest",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "lucide-react": "latest",
-    "tailwindcss": "latest"
-  },
-  "devDependencies": {}
+    "tailwindcss": "latest",
+    "vite": "latest"
+  }
 }

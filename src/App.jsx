@@ -5,7 +5,9 @@ import { StudyPanel } from "./components/StudyPanel";
 import { SubtitlesPanel } from "./components/SubtitlesPanel";
 import { VideoImporter } from "./components/VideoImporter";
 import { Button } from "./components/ui/Button";
+import { getApiHealth } from "./lib/api";
 import {
+  cleanSrtText,
   extractYoutubeId,
   generateStudyMaterials,
   makeVideoTitle,
@@ -17,6 +19,7 @@ const EMPTY_LIBRARY = {
   videos: [],
   selectedVideoId: "",
   subtitleDrafts: {},
+  analysisByVideoId: {},
   selectedLevel: "N5",
 };
 
@@ -55,6 +58,12 @@ function loadStoredLibrary() {
             )
           )
         : {};
+    const analysisByVideoId =
+      parsedValue?.analysisByVideoId &&
+      typeof parsedValue.analysisByVideoId === "object" &&
+      !Array.isArray(parsedValue.analysisByVideoId)
+        ? parsedValue.analysisByVideoId
+        : {};
     const selectedVideoId =
       typeof parsedValue?.selectedVideoId === "string" &&
       videos.some((video) => video.id === parsedValue.selectedVideoId)
@@ -83,7 +92,13 @@ function loadStoredLibrary() {
       };
     });
 
-    return { videos: migratedVideos, selectedVideoId, subtitleDrafts, selectedLevel };
+    return {
+      videos: migratedVideos,
+      selectedVideoId,
+      subtitleDrafts,
+      analysisByVideoId,
+      selectedLevel,
+    };
   } catch {
     return EMPTY_LIBRARY;
   }
@@ -96,8 +111,16 @@ export default function App() {
     library.selectedVideoId
   );
   const [subtitleDrafts, setSubtitleDrafts] = useState(library.subtitleDrafts);
+  const [analysisByVideoId, setAnalysisByVideoId] = useState(
+    library.analysisByVideoId
+  );
   const [selectedLevel, setSelectedLevel] = useState(library.selectedLevel);
   const [importError, setImportError] = useState("");
+  const [apiHealth, setApiHealth] = useState({
+    status: "checking",
+    hasOpenAiKey: false,
+    model: "",
+  });
 
   const selectedVideo = useMemo(
     () => videos.find((video) => video.id === selectedVideoId) ?? null,
@@ -112,6 +135,7 @@ export default function App() {
           videos,
           selectedVideoId,
           subtitleDrafts,
+          analysisByVideoId,
           selectedLevel,
         })
       );
@@ -120,7 +144,43 @@ export default function App() {
         "Le navigateur n'a pas pu sauvegarder les donnees localement."
       );
     }
-  }, [videos, selectedVideoId, subtitleDrafts, selectedLevel]);
+  }, [videos, selectedVideoId, subtitleDrafts, analysisByVideoId, selectedLevel]);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    getApiHealth()
+      .then((health) => {
+        if (!isCurrent) return;
+        setApiHealth({
+          status: "online",
+          hasOpenAiKey: Boolean(health.hasOpenAiKey),
+          model: health.model ?? "",
+        });
+      })
+      .catch(() => {
+        if (!isCurrent) return;
+        setApiHealth({
+          status: "offline",
+          hasOpenAiKey: false,
+          model: "",
+        });
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  const canUseAi = apiHealth.status === "online" && apiHealth.hasOpenAiKey;
+  const aiStatusLabel =
+    apiHealth.status === "checking"
+      ? "API..."
+      : canUseAi
+        ? `IA ${apiHealth.model || "prete"}`
+        : apiHealth.status === "online"
+          ? "Cle API manquante"
+          : "API hors ligne";
 
   function addVideo({ youtubeUrl, subtitles }) {
     const youtubeId = extractYoutubeId(youtubeUrl);
@@ -157,6 +217,10 @@ export default function App() {
     setImportError("");
     setVideos((currentVideos) => [video, ...currentVideos]);
     setSubtitleDrafts((drafts) => ({ ...drafts, [id]: rawSubtitles }));
+    setAnalysisByVideoId((analyses) => {
+      const { [id]: ignored, ...remainingAnalyses } = analyses;
+      return remainingAnalyses;
+    });
     setSelectedVideoId(id);
     return true;
   }
@@ -168,6 +232,10 @@ export default function App() {
       ...drafts,
       [selectedVideo.id]: value,
     }));
+    setAnalysisByVideoId((analyses) => {
+      const { [selectedVideo.id]: ignored, ...remainingAnalyses } = analyses;
+      return remainingAnalyses;
+    });
     setVideos((currentVideos) =>
       currentVideos.map((video) =>
         video.id === selectedVideo.id
@@ -188,6 +256,10 @@ export default function App() {
       ...drafts,
       [selectedVideo.id]: "",
     }));
+    setAnalysisByVideoId((analyses) => {
+      const { [selectedVideo.id]: ignored, ...remainingAnalyses } = analyses;
+      return remainingAnalyses;
+    });
     setVideos((currentVideos) =>
       currentVideos.map((video) =>
         video.id === selectedVideo.id
@@ -216,6 +288,33 @@ export default function App() {
           : video
       )
     );
+    setAnalysisByVideoId((analyses) => {
+      const { [selectedVideo.id]: ignored, ...remainingAnalyses } = analyses;
+      return remainingAnalyses;
+    });
+  }
+
+  function saveScriptAnalysis(analysis) {
+    if (!selectedVideo) return;
+    setAnalysisByVideoId((analyses) => ({
+      ...analyses,
+      [selectedVideo.id]: analysis,
+    }));
+  }
+
+  function saveGeneratedQuiz(quiz) {
+    if (!selectedVideo) return;
+    setVideos((currentVideos) =>
+      currentVideos.map((video) =>
+        video.id === selectedVideo.id
+          ? {
+              ...video,
+              quiz,
+              focus: [...new Set([...(video.focus ?? []), "QCM IA"])],
+            }
+          : video
+      )
+    );
   }
 
   function selectVideo(videoId) {
@@ -238,6 +337,20 @@ export default function App() {
             kotoba
           </h1>
           <div className="flex flex-wrap items-end gap-3">
+            <div
+              className={
+                canUseAi
+                  ? "rounded-md border border-[#b9d5c0] bg-[#edf7ef] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#245332]"
+                  : "rounded-md border border-[#e5d5b0] bg-[#fff9e8] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#7a5a18]"
+              }
+              title={
+                canUseAi
+                  ? "Le backend local est pret pour les fonctions IA."
+                  : "Lance npm run app et renseigne OPENAI_API_KEY dans .env."
+              }
+            >
+              {aiStatusLabel}
+            </div>
             {selectedVideo && (
               <Button variant="secondary" onClick={showLibrary}>
                 Parcours
@@ -276,12 +389,19 @@ export default function App() {
               <SubtitlesPanel
                 rawText={subtitleDrafts[selectedVideo.id] ?? ""}
                 vocabulary={selectedVideo.vocabulary}
+                level={selectedVideo.level}
+                analysis={analysisByVideoId[selectedVideo.id]}
+                canUseAi={canUseAi}
+                onAnalysis={saveScriptAnalysis}
                 onChange={updateSubtitles}
                 onReset={resetSubtitles}
               />
             </div>
             <StudyPanel
               video={selectedVideo}
+              script={cleanSrtText(subtitleDrafts[selectedVideo.id] ?? "")}
+              canUseAi={canUseAi}
+              onQuizGenerated={saveGeneratedQuiz}
             />
           </div>
         ) : (

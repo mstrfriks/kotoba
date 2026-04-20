@@ -18,6 +18,7 @@ export function QuizPanel({
   const progress = total ? Math.min((currentIndex / total) * 100, 100) : 0;
   const choices = Array.isArray(question?.choices) ? question.choices : [];
   const isCorrect = selectedChoice === question?.answerIndex;
+  const explanation = question?.explanation;
 
   if (!total) {
     return (
@@ -102,11 +103,14 @@ export function QuizPanel({
       {isValidated && (
         <div
           className={cn(
-            "mt-5 rounded-md p-4 text-sm font-medium",
+            "mt-5 rounded-md p-4 text-sm font-medium leading-6",
             isCorrect ? "bg-[#eef5ef] text-[#1f3d2b]" : "bg-[#fff5f3] text-[#8f3228]"
           )}
         >
-          {isCorrect ? "正解です。" : "もう一度確認しましょう。"}
+          <p>{isCorrect ? "正解です。" : "もう一度確認しましょう。"}</p>
+          {explanation && (
+            <p className="mt-2 font-normal text-[#405048]">{explanation}</p>
+          )}
         </div>
       )}
       <div className="mt-5 flex gap-2">
