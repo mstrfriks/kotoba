@@ -3,6 +3,6 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  base: "/kotoba/docs/",
+  base: "/kotoba/",
   plugins: [react(), tailwindcss()],
 });
