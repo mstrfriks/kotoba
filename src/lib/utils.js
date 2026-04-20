@@ -39,6 +39,141 @@ const commonJapaneseTerms = [
   { japanese: "すみません", reading: "sumimasen", french: "excusez-moi" },
 ];
 
+const kanjiHiraganaReadings = {
+  一: "いち",
+  二: "に",
+  三: "さん",
+  四: "よん",
+  五: "ご",
+  六: "ろく",
+  七: "なな",
+  八: "はち",
+  九: "きゅう",
+  十: "じゅう",
+  百: "ひゃく",
+  千: "せん",
+  万: "まん",
+  円: "えん",
+  人: "ひと",
+  日: "にち",
+  月: "つき",
+  火: "ひ",
+  水: "みず",
+  木: "き",
+  金: "かね",
+  土: "つち",
+  今: "いま",
+  明: "あか",
+  昨: "さく",
+  時: "とき",
+  間: "あいだ",
+  分: "ふん",
+  半: "はん",
+  年: "とし",
+  週: "しゅう",
+  先: "さき",
+  生: "せい",
+  学: "がく",
+  校: "こう",
+  語: "ご",
+  本: "ほん",
+  国: "くに",
+  私: "わたし",
+  僕: "ぼく",
+  友: "とも",
+  達: "たち",
+  家: "いえ",
+  仕: "し",
+  事: "ごと",
+  会: "かい",
+  社: "しゃ",
+  駅: "えき",
+  電: "でん",
+  車: "くるま",
+  店: "みせ",
+  食: "た",
+  飲: "の",
+  行: "い",
+  来: "く",
+  見: "み",
+  聞: "き",
+  話: "はな",
+  買: "か",
+  好: "す",
+  大: "だい",
+  丈: "じょう",
+  夫: "ぶ",
+  願: "ねが",
+  入: "はい",
+  出: "で",
+  上: "うえ",
+  下: "した",
+  左: "ひだり",
+  右: "みぎ",
+  中: "なか",
+  外: "そと",
+  前: "まえ",
+  後: "あと",
+  東: "ひがし",
+  西: "にし",
+  南: "みなみ",
+  北: "きた",
+  高: "たか",
+  安: "やす",
+  新: "しん",
+  古: "ふる",
+  長: "なが",
+  小: "しょう",
+  白: "しろ",
+  黒: "くろ",
+  赤: "あか",
+  青: "あお",
+  名: "な",
+  何: "なに",
+  誰: "だれ",
+  男: "おとこ",
+  女: "おんな",
+  子: "こ",
+  父: "ちち",
+  母: "はは",
+  兄: "あに",
+  姉: "あね",
+  弟: "おとうと",
+  妹: "いもうと",
+  口: "くち",
+  目: "め",
+  耳: "みみ",
+  手: "て",
+  足: "あし",
+  力: "ちから",
+  気: "き",
+  天: "てん",
+  雨: "あめ",
+  山: "やま",
+  川: "かわ",
+  田: "た",
+  空: "そら",
+  花: "はな",
+  休: "やす",
+  言: "い",
+  読: "よ",
+  書: "か",
+  作: "つく",
+  思: "おも",
+  知: "し",
+  使: "つか",
+  持: "も",
+  待: "ま",
+  帰: "かえ",
+  始: "はじ",
+  終: "お",
+  起: "お",
+  寝: "ね",
+  働: "はたら",
+  勉: "べん",
+  強: "きょう",
+};
+
 export function cleanSrtText(value) {
   return value
     .split(/\r?\n/)
@@ -69,10 +204,10 @@ export function parseSrtCues(value) {
       return {
         id: `${index}-${lines[timeIndex]}`,
         time: lines[timeIndex].replace(/\s+/g, " "),
-        text: lines.slice(timeIndex + 1).join("\n").trim(),
+        sentences: splitJapaneseSentences(lines.slice(timeIndex + 1).join(" ")),
       };
     })
-    .filter((cue) => cue?.text);
+    .filter((cue) => cue?.sentences.length);
 
   if (cues.length) return cues;
 
@@ -83,7 +218,7 @@ export function parseSrtCues(value) {
     .map((line, index) => ({
       id: `line-${index}`,
       time: "",
-      text: line,
+      sentences: splitJapaneseSentences(line),
     }));
 }
 
@@ -100,24 +235,79 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function romajiToHiragana(value) {
+  const directReadings = {
+    watashi: "わたし",
+    boku: "ぼく",
+    kyou: "きょう",
+    ashita: "あした",
+    kinou: "きのう",
+    jikan: "じかん",
+    nihon: "にほん",
+    nihongo: "にほんご",
+    gakkou: "がっこう",
+    sensei: "せんせい",
+    gakusei: "がくせい",
+    tomodachi: "ともだち",
+    ie: "いえ",
+    shigoto: "しごと",
+    kaisha: "かいしゃ",
+    eki: "えき",
+    densha: "でんしゃ",
+    kuruma: "くるま",
+    mise: "みせ",
+    mizu: "みず",
+    taberu: "たべる",
+    nomu: "のむ",
+    iku: "いく",
+    kuru: "くる",
+    miru: "みる",
+    kiku: "きく",
+    hanasu: "はなす",
+    kau: "かう",
+    suki: "すき",
+    daijoubu: "だいじょうぶ",
+    onegaishimasu: "おねがいします",
+    arigatou: "ありがとう",
+    konnichiwa: "こんにちは",
+    sumimasen: "すみません",
+  };
+  return directReadings[value] ?? value;
+}
+
 export function addFuriganaToText(value, vocabulary = []) {
   const readings = new Map(
     [...commonJapaneseTerms, ...vocabulary]
       .filter((item) => item?.japanese && item?.reading)
       .filter((item) => item.reading !== "a completer")
-      .map((item) => [stripHtml(item.japanese), item.reading])
+      .map((item) => [stripHtml(item.japanese), romajiToHiragana(item.reading)])
   );
   const terms = [...readings.keys()].sort((a, b) => b.length - a.length);
+  let output = "";
+  let index = 0;
 
-  if (!terms.length) return escapeHtml(value);
+  while (index < value.length) {
+    const match = terms.find((term) => value.startsWith(term, index));
+    if (match) {
+      output += `<ruby>${escapeHtml(match)}<rt>${escapeHtml(
+        readings.get(match)
+      )}</rt></ruby>`;
+      index += match.length;
+      continue;
+    }
 
-  const pattern = new RegExp(terms.map(escapeRegExp).join("|"), "gu");
-  return escapeHtml(value).replace(pattern, (match) => {
-    const reading = readings.get(match);
-    return reading
-      ? `<ruby>${match}<rt>${escapeHtml(reading)}</rt></ruby>`
-      : match;
-  });
+    const character = value[index];
+    if (/\p{Script=Han}/u.test(character)) {
+      output += `<ruby>${escapeHtml(character)}<rt>${escapeHtml(
+        kanjiHiraganaReadings[character] ?? "?"
+      )}</rt></ruby>`;
+    } else {
+      output += escapeHtml(character);
+    }
+    index += 1;
+  }
+
+  return output;
 }
 
 export function extractYoutubeId(value) {
@@ -158,46 +348,11 @@ export const studyLevels = [
 ];
 
 const levelInstructions = {
-  N5: {
-    mode: "Comprehension directe",
-    prompts: [
-      "Qui ou quoi est mentionne dans cet extrait ?",
-      "Quelle action principale comprends-tu ?",
-      "Quel mot cle aide a comprendre la phrase ?",
-    ],
-  },
-  N4: {
-    mode: "Comprehension du contexte",
-    prompts: [
-      "Que se passe-t-il dans cet extrait ?",
-      "Quelle information importante faut-il retenir ?",
-      "Quelle relation vois-tu entre les idees de la phrase ?",
-    ],
-  },
-  N3: {
-    mode: "Comprehension globale",
-    prompts: [
-      "Quel est le message principal de cet extrait ?",
-      "Pourquoi cette phrase est-elle importante pour la scene ?",
-      "Quelle intention du locuteur peut-on comprendre ?",
-    ],
-  },
-  N2: {
-    mode: "Inference",
-    prompts: [
-      "Quelle nuance ou implication peut-on deduire ?",
-      "Quel changement de situation cet extrait suggere-t-il ?",
-      "Quelle information n'est pas dite directement mais reste probable ?",
-    ],
-  },
-  N1: {
-    mode: "Analyse fine",
-    prompts: [
-      "Analyse la position ou l'attitude implicite du locuteur.",
-      "Quelle nuance discursive structure cet extrait ?",
-      "Comment reformulerais-tu l'idee centrale en francais precis ?",
-    ],
-  },
+  N5: "この文の内容として正しいものはどれですか。",
+  N4: "この文で話していることは何ですか。",
+  N3: "この文の意味に一番近いものはどれですか。",
+  N2: "この文から分かることはどれですか。",
+  N1: "この文の意図として最も自然なものはどれですか。",
 };
 
 function splitJapaneseSentences(text) {
@@ -263,28 +418,59 @@ function findContext(term, sentences, fallbackText) {
   );
 }
 
+function findSentenceTopic(sentence, vocabulary) {
+  const vocabularyTerm = vocabulary.find((item) =>
+    sentence.includes(stripHtml(item.japanese))
+  );
+  if (vocabularyTerm) return stripHtml(vocabularyTerm.japanese);
+
+  const matches =
+    sentence.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー々]+/gu) ??
+    [];
+  return matches.find((match) => match.length >= 2) ?? sentence.slice(0, 8);
+}
+
+function uniqueItems(items) {
+  return [...new Set(items.filter(Boolean))];
+}
+
+function rotateItems(items, offset) {
+  if (!items.length) return [];
+  return [...items.slice(offset), ...items.slice(0, offset)];
+}
+
 function makeComprehensionQuiz(sentences, vocabulary, level, fallbackText) {
-  const profile = levelInstructions[normalizeLevel(level)];
+  const prompt = levelInstructions[normalizeLevel(level)];
   const sourceSentences = sentences.length
     ? sentences
     : fallbackText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const selectedSentences = sourceSentences.slice(0, 6);
+  const topics = uniqueItems([
+    ...selectedSentences.map((sentence) => findSentenceTopic(sentence, vocabulary)),
+    ...vocabulary.map((item) => stripHtml(item.japanese)),
+  ]);
 
   if (!selectedSentences.length) return [];
 
   return selectedSentences.map((sentence, index) => {
-    const term = vocabulary.find((item) => sentence.includes(item.japanese));
-    const prompt = profile.prompts[index % profile.prompts.length];
-    const answer = term
-      ? `Reponse attendue: expliquer l'extrait avec "${stripHtml(
-          term.japanese
-        )}" (${term.french}).`
-      : "Reponse attendue: reformuler l'idee principale en francais avec les indices du contexte.";
+    const topic = findSentenceTopic(sentence, vocabulary);
+    const distractors = rotateItems(
+      topics.filter((item) => item !== topic),
+      index
+    ).slice(0, 3);
+    const fallbackDistractors = ["時間", "場所", "人", "気持ち"].filter(
+      (item) => item !== topic && !distractors.includes(item)
+    );
+    const allDistractors = [...distractors, ...fallbackDistractors].slice(0, 3);
+    const correctAnswer = `「${topic}」について話しています。`;
+    const choices = [correctAnswer, ...allDistractors.map((item) => `「${item}」について話しています。`)];
+    const rotatedChoices = rotateItems(choices, index % choices.length);
 
     return {
-      prompt: `${prompt} (${profile.mode})`,
-      answer,
-      hint: sentence,
+      prompt,
+      sentence,
+      choices: rotatedChoices,
+      answerIndex: rotatedChoices.indexOf(correctAnswer),
     };
   });
 }

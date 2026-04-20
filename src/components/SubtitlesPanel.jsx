@@ -51,12 +51,17 @@ export function SubtitlesPanel({ rawText, vocabulary, onChange, onReset }) {
                 key={cue.id}
                 className="rounded-md border border-[#e6eae6] bg-white px-3 py-2"
               >
-                <div
-                  className="whitespace-pre-wrap text-base leading-8 text-[#243229]"
-                  dangerouslySetInnerHTML={{
-                    __html: addFuriganaToText(cue.text, vocabulary),
-                  }}
-                />
+                <div className="grid gap-1">
+                  {cue.sentences.map((sentence, index) => (
+                    <p
+                      key={`${cue.id}-${index}`}
+                      className="whitespace-pre-wrap text-base leading-8 text-[#243229]"
+                      dangerouslySetInnerHTML={{
+                        __html: addFuriganaToText(sentence, vocabulary),
+                      }}
+                    />
+                  ))}
+                </div>
                 {cue.time && (
                   <p className="mt-1 text-[11px] font-medium text-[#9aa39d]">
                     {cue.time}

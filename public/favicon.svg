@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Tori">
+  <rect width="64" height="64" rx="14" fill="#f7f7f4"/>
+  <path d="M14 36c8-14 23-21 38-18-5 3-8 7-10 12 5 1 9 4 12 9-8-1-14 1-19 7-5 6-13 8-21 5 6-2 10-6 12-12-4 1-8 0-12-3Z" fill="#1f3d2b"/>
+  <path d="M32 27c-4 4-6 9-6 15-4-7-4-14 0-20 5-7 14-10 26-7-8 1-15 5-20 12Z" fill="#315b40"/>
+  <circle cx="40" cy="24" r="2.5" fill="#f7f7f4"/>
+  <path d="M49 22l8-3-5 7Z" fill="#c74f37"/>
+  <path d="M25 45l-6 8M31 46l-1 10" stroke="#1f3d2b" stroke-width="3" stroke-linecap="round"/>
+</svg>
