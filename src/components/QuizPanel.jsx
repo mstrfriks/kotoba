@@ -7,6 +7,8 @@ export function QuizPanel({
   currentIndex,
   selectedChoice,
   isValidated,
+  correctAnswers,
+  savedProgress,
   onSelectChoice,
   onValidate,
   onNext,
@@ -19,6 +21,7 @@ export function QuizPanel({
   const choices = Array.isArray(question?.choices) ? question.choices : [];
   const isCorrect = selectedChoice === question?.answerIndex;
   const explanation = question?.explanation;
+  const answeredCount = Math.min(total, currentIndex + (isValidated ? 1 : 0));
 
   if (!total) {
     return (
@@ -28,6 +31,8 @@ export function QuizPanel({
     );
   }
 
+  const hasSavedProgress = savedProgress?.total > 0;
+
   if (isDone) {
     return (
       <div className="rounded-md border border-[#dfe5df] bg-white p-5 text-center">
@@ -36,8 +41,8 @@ export function QuizPanel({
           Revision terminee
         </h3>
         <p className="mt-2 text-sm leading-6 text-[#5d6a62]">
-          Tu as termine le QCM de comprehension. Relance la serie pour revoir
-          les phrases.
+          Score final : {correctAnswers} / {total}. Relance la serie pour
+          revoir les phrases.
         </p>
         <Button className="mt-4" variant="secondary" onClick={onRestart}>
           <RotateCcw className="h-4 w-4" />
@@ -48,13 +53,21 @@ export function QuizPanel({
   }
 
   return (
-    <div className="rounded-md border border-[#dfe5df] bg-white p-4">
+    <div className="rounded-md border border-[#dfe5df] bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-[#1d2b22]">
           Question {currentIndex + 1} / {total}
         </p>
-        <p className="text-xs text-[#7a857e]">QCM comprehension</p>
+        <p className="text-xs font-medium text-[#7a857e]">
+          Score {correctAnswers} / {answeredCount}
+        </p>
       </div>
+      {hasSavedProgress && currentIndex === 0 && !isValidated && (
+        <div className="mt-3 rounded-md bg-[#f7f9f7] px-3 py-2 text-xs font-medium text-[#68756d]">
+          Derniere serie : {savedProgress.lastScore} / {savedProgress.total} ·
+          meilleur score : {savedProgress.bestScore} / {savedProgress.total}
+        </div>
+      )}
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf1ed]">
         <div
           className="h-full rounded-full bg-[#315b40] transition-all"
@@ -68,7 +81,7 @@ export function QuizPanel({
         <h3 className="mt-2 text-xl font-semibold text-[#1d2b22]">
           {question.prompt}
         </h3>
-        <p className="mt-3 rounded-md bg-[#f7f9f7] p-3 text-lg leading-8 text-[#243229]">
+        <p className="mt-3 rounded-md bg-[#f7f9f7] p-4 text-lg leading-8 text-[#243229]">
           {question.sentence}
         </p>
       </div>

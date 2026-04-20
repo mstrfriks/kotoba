@@ -94,8 +94,8 @@ export function VideoPlayer({
     typeof window === "undefined" ? "" : `&origin=${window.location.origin}`;
 
   return (
-    <section className="rounded-lg border border-[#dfe5df] bg-white">
-      <div className="relative aspect-video overflow-hidden rounded-t-lg bg-[#111815]">
+    <section className="overflow-hidden rounded-lg border border-[#cfd8d1] bg-[#101713] shadow-sm">
+      <div className="relative aspect-video overflow-hidden bg-[#111815]">
         <iframe
           ref={iframeRef}
           className="h-full w-full"
@@ -105,16 +105,19 @@ export function VideoPlayer({
           allowFullScreen
         />
         {activeSubtitle?.text && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/55 to-transparent px-4 pb-4 pt-10">
-            <p className="mx-auto max-w-3xl rounded bg-black/65 px-3 py-2 text-center text-base font-semibold leading-7 text-white shadow md:text-lg">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-4 pb-5 pt-14">
+            <p className="mx-auto max-w-3xl rounded-md bg-black/70 px-4 py-2 text-center text-base font-semibold leading-7 text-white shadow md:text-lg">
               {activeSubtitle.text}
             </p>
           </div>
         )}
       </div>
-      <div className="p-4">
+      <div className="bg-white p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
+              Lecture
+            </p>
             <h1 className="text-2xl font-semibold text-[#1d2b22]">
               {video.title}
             </h1>
@@ -122,7 +125,7 @@ export function VideoPlayer({
               {video.summary}
             </p>
           </div>
-          <div className="rounded-md border border-[#dfe5df] px-3 py-2 text-sm text-[#4f5d55]">
+          <div className="rounded-md border border-[#dfe5df] bg-[#fbfcfb] px-3 py-2 text-sm font-medium text-[#4f5d55]">
             {video.level} · {video.duration}
           </div>
         </div>

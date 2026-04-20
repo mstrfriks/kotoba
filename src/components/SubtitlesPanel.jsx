@@ -114,6 +114,7 @@ export function SubtitlesPanel({
   level,
   analysis,
   canUseAi,
+  embedded = false,
   currentTime = 0,
   onAnalysis,
   onChange,
@@ -254,18 +255,25 @@ export function SubtitlesPanel({
     }
   }
 
-  return (
-    <section className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8ece8] p-3">
+  const panelContent = (
+    <>
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 rounded-md",
+          embedded ? "pb-3" : "border-b border-[#e8ece8] p-3"
+        )}
+      >
         <div>
-          <h2 className="font-semibold text-[#1d2b22]">Sous-titres</h2>
+          {!embedded && (
+            <h2 className="font-semibold text-[#1d2b22]">Sous-titres</h2>
+          )}
           <p className="mt-1 text-xs text-[#718078]">
             {stats.sentences} phrase{stats.sentences > 1 ? "s" : ""} ·{" "}
             {stats.lines} ligne{stats.lines > 1 ? "s" : ""} ·{" "}
             {stats.characters} caractere{stats.characters > 1 ? "s" : ""}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <div className="flex items-center rounded-md border border-[#d7ddd8] bg-white">
             <button
               type="button"
@@ -344,7 +352,11 @@ export function SubtitlesPanel({
           {analyzedCount > 1 ? "s" : ""}
         </div>
       )}
-      <div className="study-scroll max-h-[34vh] overflow-auto p-3">
+      <div
+        className={cn(
+          embedded ? "" : "study-scroll max-h-[34vh] overflow-auto p-3"
+        )}
+      >
         {sentences.length ? (
           <div className="grid gap-2">
             {sentences.map((sentence, index) => {
@@ -366,16 +378,16 @@ export function SubtitlesPanel({
                   }
                 }}
                 className={cn(
-                  "rounded-md border px-3 py-2 transition",
+                  "rounded-md border px-3 py-3 transition",
                   isActive
-                    ? "border-[#315b40] bg-[#f1f7f2] shadow-sm"
-                    : "border-[#e6eae6] bg-white"
+                    ? "border-[#315b40] bg-white shadow-sm ring-1 ring-[#d8e7dc]"
+                    : "border-[#e3e8e3] bg-white/80"
                 )}
               >
                 <div className="flex items-start justify-between gap-3">
                   <p
                     className={cn(
-                      "pt-1 text-xs font-semibold",
+                      "pt-1 text-xs font-semibold tabular-nums",
                       isActive ? "text-[#315b40]" : "text-[#9aa39d]"
                     )}
                   >
@@ -394,7 +406,7 @@ export function SubtitlesPanel({
                     )}
                   </div>
                 </div>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 pl-7">
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pl-7">
                   {sentence.time ? (
                     <button
                       type="button"
@@ -443,7 +455,7 @@ export function SubtitlesPanel({
           </div>
         )}
       </div>
-      <details className="border-t border-[#e8ece8] p-3">
+      <details className="mt-3 rounded-md border border-[#e3e8e3] bg-white p-3">
         <summary className="cursor-pointer text-sm font-medium text-[#526058]">
           Modifier le SRT
         </summary>
@@ -454,6 +466,16 @@ export function SubtitlesPanel({
           placeholder="1&#10;00:00:01,000 --> 00:00:03,000&#10;こんにちは。今日は..."
         />
       </details>
+    </>
+  );
+
+  if (embedded) {
+    return panelContent;
+  }
+
+  return (
+    <section className="rounded-lg border border-[#dfe5df] bg-[#fbfcfb]">
+      {panelContent}
     </section>
   );
 }

@@ -1,17 +1,38 @@
-import { BookOpen, Clock3, PlayCircle, Upload } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  BookOpen,
+  Clock3,
+  Download,
+  PlayCircle,
+  Search,
+  Upload,
+} from "lucide-react";
 import { VideoImporter } from "./VideoImporter";
 import { VideoList } from "./VideoList";
+import { Button } from "./ui/Button";
 
 function getThumbnailUrl(video) {
   return `https://img.youtube.com/vi/${video.youtubeId}/hqdefault.jpg`;
 }
 
-function VideoProposalCard({ video, subtitleDrafts, featured = false, onSelect }) {
+function formatProgress(progress) {
+  if (!progress?.total) return "";
+  return `Score ${progress.bestScore} / ${progress.total}`;
+}
+
+function VideoProposalCard({
+  video,
+  subtitleDrafts,
+  progress,
+  featured = false,
+  onSelect,
+}) {
   const hasSubtitles = Boolean(subtitleDrafts[video.id]?.trim());
   const quizCount = Array.isArray(video.quiz) ? video.quiz.length : 0;
   const vocabularyCount = Array.isArray(video.vocabulary)
     ? video.vocabulary.length
     : 0;
+  const progressLabel = formatProgress(progress);
 
   return (
     <button
@@ -19,8 +40,8 @@ function VideoProposalCard({ video, subtitleDrafts, featured = false, onSelect }
       onClick={() => onSelect(video.id)}
       className={
         featured
-          ? "group grid overflow-hidden rounded-lg border border-[#cad5cc] bg-white text-left transition hover:border-[#315b40] md:grid-cols-[minmax(220px,0.85fr)_minmax(0,1fr)]"
-          : "group overflow-hidden rounded-lg border border-[#dfe5df] bg-white text-left transition hover:border-[#315b40]"
+          ? "group grid overflow-hidden rounded-lg border border-[#cfd8d1] bg-white text-left shadow-sm transition hover:border-[#315b40] md:grid-cols-[minmax(240px,0.85fr)_minmax(0,1fr)]"
+          : "group overflow-hidden rounded-lg border border-[#dfe5df] bg-white text-left shadow-sm transition hover:border-[#315b40]"
       }
     >
       <div className="relative aspect-video bg-[#111815]">
@@ -67,6 +88,11 @@ function VideoProposalCard({ video, subtitleDrafts, featured = false, onSelect }
           <span className="rounded bg-[#f1f4f1] px-2 py-1">
             {quizCount} questions
           </span>
+          {progressLabel && (
+            <span className="rounded bg-[#eef5ef] px-2 py-1 text-[#315b40]">
+              {progressLabel}
+            </span>
+          )}
         </div>
       </div>
     </button>
@@ -76,16 +102,76 @@ function VideoProposalCard({ video, subtitleDrafts, featured = false, onSelect }
 export function HomeDashboard({
   videos,
   subtitleDrafts,
+  quizProgressByVideoId = {},
   importError,
   onAddVideo,
+  onExportLibrary,
+  onImportLibrary,
+  onRenameVideo,
+  onDeleteVideo,
   onSelectVideo,
 }) {
-  const featuredVideo = videos[0] ?? null;
-  const proposedVideos = videos.slice(featuredVideo ? 1 : 0, 7);
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleVideos = useMemo(() => {
+    if (!normalizedQuery) return videos;
+
+    return videos.filter((video) =>
+      [
+        video.title,
+        video.summary,
+        video.level,
+        video.duration,
+        ...(video.fileNames ?? []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery)
+    );
+  }, [normalizedQuery, videos]);
+  const featuredVideo = visibleVideos[0] ?? null;
+  const proposedVideos = visibleVideos.slice(featuredVideo ? 1 : 0, 7);
+  const isFiltered = Boolean(normalizedQuery);
 
   return (
     <div className="mx-auto grid max-w-[1680px] gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
       <div className="grid content-start gap-4">
+        <section className="rounded-lg border border-[#cfd8d1] bg-white p-4 shadow-sm">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
+              Sauvegarde
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-[#1d2b22]">
+              Bibliotheque locale
+            </h2>
+          </div>
+          <div className="mt-4 grid gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onExportLibrary}
+              disabled={!videos.length}
+              className="w-full"
+            >
+              <Download className="h-4 w-4" />
+              Exporter
+            </Button>
+            <label className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-[#d7ddd8] bg-white px-4 text-sm font-medium text-[#233128] transition hover:bg-[#f0f3f0]">
+              <Upload className="h-4 w-4" />
+              Importer
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="sr-only"
+                onChange={(event) => {
+                  onImportLibrary(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+        </section>
         <VideoImporter onAddVideo={onAddVideo} />
         {importError && (
           <div className="rounded-md border border-[#f1c8c2] bg-[#fff6f4] p-3 text-sm font-medium text-[#a13d32]">
@@ -93,15 +179,19 @@ export function HomeDashboard({
           </div>
         )}
         <VideoList
-          videos={videos}
+          videos={visibleVideos}
+          title={isFiltered ? "Resultats" : "Videos importees"}
           selectedVideoId=""
           subtitleDrafts={subtitleDrafts}
+          quizProgressByVideoId={quizProgressByVideoId}
+          onRename={onRenameVideo}
+          onDelete={onDeleteVideo}
           onSelect={onSelectVideo}
         />
       </div>
 
       <section className="grid content-start gap-4">
-        <div className="rounded-lg border border-[#dfe5df] bg-white p-5">
+        <div className="rounded-lg border border-[#cfd8d1] bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
@@ -116,6 +206,21 @@ export function HomeDashboard({
               {videos.length} video{videos.length > 1 ? "s" : ""}
             </div>
           </div>
+          <label className="mt-4 flex items-center gap-2 rounded-md border border-[#d9e0da] bg-[#fbfcfb] px-3 focus-within:border-[#315b40] focus-within:ring-2 focus-within:ring-[#d8e7dc]">
+            <Search className="h-4 w-4 shrink-0 text-[#68756d]" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="h-10 min-w-0 flex-1 bg-transparent text-sm text-[#26332b] outline-none placeholder:text-[#9aa39d]"
+              placeholder="Chercher une video, un fichier SRT, un niveau..."
+            />
+          </label>
+          {isFiltered && (
+            <p className="mt-2 text-xs font-medium text-[#68756d]">
+              {visibleVideos.length} resultat
+              {visibleVideos.length > 1 ? "s" : ""} sur {videos.length}
+            </p>
+          )}
         </div>
 
         {featuredVideo ? (
@@ -123,6 +228,7 @@ export function HomeDashboard({
             <VideoProposalCard
               video={featuredVideo}
               subtitleDrafts={subtitleDrafts}
+              progress={quizProgressByVideoId[featuredVideo.id]}
               featured
               onSelect={onSelectVideo}
             />
@@ -133,12 +239,26 @@ export function HomeDashboard({
                     key={video.id}
                     video={video}
                     subtitleDrafts={subtitleDrafts}
+                    progress={quizProgressByVideoId[video.id]}
                     onSelect={onSelectVideo}
                   />
                 ))}
               </div>
             )}
           </>
+        ) : isFiltered ? (
+          <div className="grid min-h-[280px] place-items-center rounded-lg border border-dashed border-[#cad5cc] bg-white p-8 text-center">
+            <div className="max-w-md">
+              <Search className="mx-auto h-10 w-10 text-[#315b40]" />
+              <h2 className="mt-4 text-2xl font-semibold text-[#1d2b22]">
+                Aucun resultat
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-[#59665e]">
+                Essaie avec le titre, le nom du fichier SRT ou le niveau de la
+                video.
+              </p>
+            </div>
+          </div>
         ) : (
           <div className="grid min-h-[360px] place-items-center rounded-lg border border-dashed border-[#cad5cc] bg-white p-8 text-center">
             <div className="max-w-md">

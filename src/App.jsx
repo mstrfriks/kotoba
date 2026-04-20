@@ -15,13 +15,25 @@ import {
 } from "./lib/utils";
 
 const STORAGE_KEY = "japonais.studyLibrary.v1";
+const LIBRARY_EXPORT_VERSION = 1;
 const EMPTY_LIBRARY = {
   videos: [],
   selectedVideoId: "",
   subtitleDrafts: {},
   analysisByVideoId: {},
+  quizProgressByVideoId: {},
   selectedLevel: "N5",
 };
+
+function makeEmptyLibrary() {
+  return {
+    ...EMPTY_LIBRARY,
+    videos: [],
+    subtitleDrafts: {},
+    analysisByVideoId: {},
+    quizProgressByVideoId: {},
+  };
+}
 
 function isStudyLevel(value) {
   return studyLevels.some((level) => level.value === value);
@@ -47,71 +59,108 @@ function formatStudyDuration(stats) {
   return `${lineCount} ligne${lineCount > 1 ? "s" : ""}`;
 }
 
+function normalizeQuizProgress(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, progress]) => progress && typeof progress === "object")
+      .map(([videoId, progress]) => [
+        videoId,
+        {
+          bestScore: Number.isFinite(progress.bestScore)
+            ? progress.bestScore
+            : 0,
+          lastScore: Number.isFinite(progress.lastScore)
+            ? progress.lastScore
+            : 0,
+          answered: Number.isFinite(progress.answered) ? progress.answered : 0,
+          total: Number.isFinite(progress.total) ? progress.total : 0,
+          updatedAt:
+            typeof progress.updatedAt === "string" ? progress.updatedAt : "",
+          completedAt:
+            typeof progress.completedAt === "string"
+              ? progress.completedAt
+              : "",
+        },
+      ])
+  );
+}
+
 function loadStoredLibrary() {
-  if (typeof window === "undefined") return EMPTY_LIBRARY;
+  if (typeof window === "undefined") return makeEmptyLibrary();
 
   try {
     const storedValue = window.localStorage.getItem(STORAGE_KEY);
-    if (!storedValue) return EMPTY_LIBRARY;
+    if (!storedValue) return makeEmptyLibrary();
 
-    const parsedValue = JSON.parse(storedValue);
-    const videos = Array.isArray(parsedValue?.videos)
-      ? parsedValue.videos.filter((video) => video?.id)
-      : [];
-    const subtitleDrafts =
-      parsedValue?.subtitleDrafts &&
-      typeof parsedValue.subtitleDrafts === "object" &&
-      !Array.isArray(parsedValue.subtitleDrafts)
-        ? Object.fromEntries(
-            Object.entries(parsedValue.subtitleDrafts).filter(
-              ([, value]) => typeof value === "string"
-            )
-          )
-        : {};
-    const analysisByVideoId =
-      parsedValue?.analysisByVideoId &&
-      typeof parsedValue.analysisByVideoId === "object" &&
-      !Array.isArray(parsedValue.analysisByVideoId)
-        ? parsedValue.analysisByVideoId
-        : {};
-    const selectedVideoId =
-      typeof parsedValue?.selectedVideoId === "string" &&
-      videos.some((video) => video.id === parsedValue.selectedVideoId)
-        ? parsedValue.selectedVideoId
-        : videos[0]?.id ?? "";
-    const videoLevel = videos.find(
-      (video) => video.id === selectedVideoId
-    )?.level;
-    const selectedLevel = isStudyLevel(parsedValue?.selectedLevel)
-      ? parsedValue.selectedLevel
-      : isStudyLevel(videoLevel)
-        ? videoLevel
-        : EMPTY_LIBRARY.selectedLevel;
-    const migratedVideos = videos.map((video) => {
-      if (hasQcmQuiz(video)) return video;
-
-      const level = isStudyLevel(video.level) ? video.level : selectedLevel;
-      const subtitles = subtitleDrafts[video.id] ?? "";
-      const materials = generateStudyMaterials(subtitles, level);
-      return {
-        ...video,
-        level,
-        duration: formatStudyDuration(materials.stats),
-        vocabulary: materials.vocabulary,
-        quiz: materials.quiz,
-      };
-    });
-
-    return {
-      videos: migratedVideos,
-      selectedVideoId,
-      subtitleDrafts,
-      analysisByVideoId,
-      selectedLevel,
-    };
+    return normalizeLibrary(JSON.parse(storedValue));
   } catch {
-    return EMPTY_LIBRARY;
+    return makeEmptyLibrary();
   }
+}
+
+function normalizeLibrary(value) {
+  const source =
+    value?.library && typeof value.library === "object" ? value.library : value;
+  const videos = Array.isArray(source?.videos)
+    ? source.videos.filter((video) => video?.id)
+    : [];
+  const subtitleDrafts =
+    source?.subtitleDrafts &&
+    typeof source.subtitleDrafts === "object" &&
+    !Array.isArray(source.subtitleDrafts)
+      ? Object.fromEntries(
+          Object.entries(source.subtitleDrafts).filter(
+            ([, value]) => typeof value === "string"
+          )
+        )
+      : {};
+  const analysisByVideoId =
+    source?.analysisByVideoId &&
+    typeof source.analysisByVideoId === "object" &&
+    !Array.isArray(source.analysisByVideoId)
+      ? source.analysisByVideoId
+      : {};
+  const quizProgressByVideoId = normalizeQuizProgress(
+    source?.quizProgressByVideoId
+  );
+  const selectedVideoId =
+    typeof source?.selectedVideoId === "string" &&
+    videos.some((video) => video.id === source.selectedVideoId)
+      ? source.selectedVideoId
+      : videos[0]?.id ?? "";
+  const videoLevel = videos.find(
+    (video) => video.id === selectedVideoId
+  )?.level;
+  const selectedLevel = isStudyLevel(source?.selectedLevel)
+    ? source.selectedLevel
+    : isStudyLevel(videoLevel)
+      ? videoLevel
+      : EMPTY_LIBRARY.selectedLevel;
+  const migratedVideos = videos.map((video) => {
+    if (hasQcmQuiz(video)) return video;
+
+    const level = isStudyLevel(video.level) ? video.level : selectedLevel;
+    const subtitles = subtitleDrafts[video.id] ?? "";
+    const materials = generateStudyMaterials(subtitles, level);
+    return {
+      ...video,
+      level,
+      duration: formatStudyDuration(materials.stats),
+      vocabulary: materials.vocabulary,
+      quiz: materials.quiz,
+    };
+  });
+
+  return {
+    videos: migratedVideos,
+    selectedVideoId,
+    subtitleDrafts,
+    analysisByVideoId,
+    quizProgressByVideoId,
+    selectedLevel,
+  };
 }
 
 export default function App() {
@@ -123,6 +172,9 @@ export default function App() {
   const [subtitleDrafts, setSubtitleDrafts] = useState(library.subtitleDrafts);
   const [analysisByVideoId, setAnalysisByVideoId] = useState(
     library.analysisByVideoId
+  );
+  const [quizProgressByVideoId, setQuizProgressByVideoId] = useState(
+    library.quizProgressByVideoId
   );
   const [selectedLevel, setSelectedLevel] = useState(library.selectedLevel);
   const [importError, setImportError] = useState("");
@@ -166,6 +218,7 @@ export default function App() {
           selectedVideoId,
           subtitleDrafts,
           analysisByVideoId,
+          quizProgressByVideoId,
           selectedLevel,
         })
       );
@@ -174,7 +227,14 @@ export default function App() {
         "Le navigateur n'a pas pu sauvegarder les donnees localement."
       );
     }
-  }, [videos, selectedVideoId, subtitleDrafts, analysisByVideoId, selectedLevel]);
+  }, [
+    videos,
+    selectedVideoId,
+    subtitleDrafts,
+    analysisByVideoId,
+    quizProgressByVideoId,
+    selectedLevel,
+  ]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -251,6 +311,10 @@ export default function App() {
       const { [id]: ignored, ...remainingAnalyses } = analyses;
       return remainingAnalyses;
     });
+    setQuizProgressByVideoId((progress) => {
+      const { [id]: ignored, ...remainingProgress } = progress;
+      return remainingProgress;
+    });
     setSelectedVideoId(id);
     return true;
   }
@@ -265,6 +329,10 @@ export default function App() {
     setAnalysisByVideoId((analyses) => {
       const { [selectedVideo.id]: ignored, ...remainingAnalyses } = analyses;
       return remainingAnalyses;
+    });
+    setQuizProgressByVideoId((progress) => {
+      const { [selectedVideo.id]: ignored, ...remainingProgress } = progress;
+      return remainingProgress;
     });
     setVideos((currentVideos) =>
       currentVideos.map((video) =>
@@ -289,6 +357,10 @@ export default function App() {
     setAnalysisByVideoId((analyses) => {
       const { [selectedVideo.id]: ignored, ...remainingAnalyses } = analyses;
       return remainingAnalyses;
+    });
+    setQuizProgressByVideoId((progress) => {
+      const { [selectedVideo.id]: ignored, ...remainingProgress } = progress;
+      return remainingProgress;
     });
     setVideos((currentVideos) =>
       currentVideos.map((video) =>
@@ -322,6 +394,10 @@ export default function App() {
       const { [selectedVideo.id]: ignored, ...remainingAnalyses } = analyses;
       return remainingAnalyses;
     });
+    setQuizProgressByVideoId((progress) => {
+      const { [selectedVideo.id]: ignored, ...remainingProgress } = progress;
+      return remainingProgress;
+    });
   }
 
   function saveScriptAnalysis(analysis) {
@@ -345,6 +421,37 @@ export default function App() {
           : video
       )
     );
+    setQuizProgressByVideoId((progress) => {
+      const { [selectedVideo.id]: ignored, ...remainingProgress } = progress;
+      return remainingProgress;
+    });
+  }
+
+  function saveQuizProgress(progress) {
+    if (!selectedVideo) return;
+
+    setQuizProgressByVideoId((currentProgress) => {
+      const previousProgress = currentProgress[selectedVideo.id] ?? {};
+      const now = new Date().toISOString();
+      const bestScore = Math.max(
+        previousProgress.bestScore ?? 0,
+        progress.correctAnswers
+      );
+
+      return {
+        ...currentProgress,
+        [selectedVideo.id]: {
+          bestScore,
+          lastScore: progress.correctAnswers,
+          answered: progress.answered,
+          total: progress.total,
+          updatedAt: now,
+          completedAt: progress.completed
+            ? now
+            : previousProgress.completedAt ?? "",
+        },
+      };
+    });
   }
 
   function selectVideo(videoId) {
@@ -352,6 +459,38 @@ export default function App() {
     setSelectedVideoId(videoId);
     if (isStudyLevel(nextVideo?.level)) {
       setSelectedLevel(nextVideo.level);
+    }
+  }
+
+  function renameVideo(videoId, title) {
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+
+    setVideos((currentVideos) =>
+      currentVideos.map((video) =>
+        video.id === videoId ? { ...video, title: nextTitle } : video
+      )
+    );
+  }
+
+  function deleteVideo(videoId) {
+    setVideos((currentVideos) =>
+      currentVideos.filter((video) => video.id !== videoId)
+    );
+    setSubtitleDrafts((drafts) => {
+      const { [videoId]: ignored, ...remainingDrafts } = drafts;
+      return remainingDrafts;
+    });
+    setAnalysisByVideoId((analyses) => {
+      const { [videoId]: ignored, ...remainingAnalyses } = analyses;
+      return remainingAnalyses;
+    });
+    setQuizProgressByVideoId((progress) => {
+      const { [videoId]: ignored, ...remainingProgress } = progress;
+      return remainingProgress;
+    });
+    if (selectedVideoId === videoId) {
+      setSelectedVideoId("");
     }
   }
 
@@ -363,10 +502,59 @@ export default function App() {
     setSeekRequest({ time, requestedAt: Date.now() });
   }
 
+  function getLibrarySnapshot() {
+    return {
+      videos,
+      selectedVideoId,
+      subtitleDrafts,
+      analysisByVideoId,
+      quizProgressByVideoId,
+      selectedLevel,
+    };
+  }
+
+  function exportLibrary() {
+    const payload = {
+      app: "kotoba",
+      version: LIBRARY_EXPORT_VERSION,
+      exportedAt: new Date().toISOString(),
+      library: getLibrarySnapshot(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const date = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `kotoba-bibliotheque-${date}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importLibrary(file) {
+    if (!file) return;
+
+    try {
+      const importedLibrary = normalizeLibrary(JSON.parse(await file.text()));
+      setVideos(importedLibrary.videos);
+      setSelectedVideoId(importedLibrary.selectedVideoId);
+      setSubtitleDrafts(importedLibrary.subtitleDrafts);
+      setAnalysisByVideoId(importedLibrary.analysisByVideoId);
+      setQuizProgressByVideoId(importedLibrary.quizProgressByVideoId);
+      setSelectedLevel(importedLibrary.selectedLevel);
+      setImportError("");
+    } catch {
+      setImportError("Le fichier de sauvegarde Kotoba n'est pas valide.");
+    }
+  }
+
   return (
-    <main className="min-h-screen bg-[#f7f7f4] p-3 text-[#1d2b22] md:p-5">
+    <main className="min-h-screen bg-[#eef1ed] p-3 text-[#1d2b22] md:p-5">
       <div className="mx-auto max-w-[1680px]">
-        <header className="mb-4 flex flex-wrap items-end justify-between gap-4">
+        <header className="mb-4 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#d8dfd9] bg-white px-4 py-3 shadow-sm">
           <h1 className="project-title text-5xl font-semibold uppercase leading-none text-[#1d2b22] md:text-6xl">
             kotoba
           </h1>
@@ -417,41 +605,51 @@ export default function App() {
         }
       >
         {selectedVideo ? (
-          <div className="grid content-start gap-4 xl:grid-cols-[minmax(420px,0.9fr)_minmax(620px,1.25fr)]">
-            <div className="grid content-start gap-4">
+          <div className="grid content-start gap-4 xl:grid-cols-[minmax(460px,0.95fr)_minmax(620px,1.15fr)]">
+            <div className="sticky top-5 grid content-start gap-4 self-start">
               <VideoPlayer
                 video={selectedVideo}
                 activeSubtitle={activeSubtitle}
                 onTimeChange={setPlaybackTime}
                 seekRequest={seekRequest}
               />
-              <SubtitlesPanel
-                rawText={selectedSubtitleText}
-                sentences={selectedSubtitleSentences}
-                vocabulary={selectedVideo.vocabulary}
-                level={selectedVideo.level}
-                analysis={analysisByVideoId[selectedVideo.id]}
-                canUseAi={canUseAi}
-                currentTime={playbackTime}
-                onAnalysis={saveScriptAnalysis}
-                onChange={updateSubtitles}
-                onReset={resetSubtitles}
-                onSeek={seekToSubtitle}
-              />
             </div>
             <StudyPanel
               video={selectedVideo}
               script={cleanSrtText(selectedSubtitleText)}
               canUseAi={canUseAi}
+              quizProgress={quizProgressByVideoId[selectedVideo.id]}
+              subtitlesPanel={
+                <SubtitlesPanel
+                  rawText={selectedSubtitleText}
+                  sentences={selectedSubtitleSentences}
+                  vocabulary={selectedVideo.vocabulary}
+                  level={selectedVideo.level}
+                  analysis={analysisByVideoId[selectedVideo.id]}
+                  canUseAi={canUseAi}
+                  embedded
+                  currentTime={playbackTime}
+                  onAnalysis={saveScriptAnalysis}
+                  onChange={updateSubtitles}
+                  onReset={resetSubtitles}
+                  onSeek={seekToSubtitle}
+                />
+              }
               onQuizGenerated={saveGeneratedQuiz}
+              onQuizProgress={saveQuizProgress}
             />
           </div>
         ) : (
           <HomeDashboard
             videos={videos}
             subtitleDrafts={subtitleDrafts}
+            quizProgressByVideoId={quizProgressByVideoId}
             importError={importError}
             onAddVideo={addVideo}
+            onExportLibrary={exportLibrary}
+            onImportLibrary={importLibrary}
+            onRenameVideo={renameVideo}
+            onDeleteVideo={deleteVideo}
             onSelectVideo={selectVideo}
           />
         )}

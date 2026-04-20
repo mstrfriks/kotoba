@@ -39,7 +39,7 @@ export function VideoImporter({ onAddVideo }) {
   }
 
   return (
-    <section className="rounded-lg border border-[#dfe5df] bg-white p-4">
+    <section className="rounded-lg border border-[#cfd8d1] bg-white p-4 shadow-sm">
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
           Import
@@ -53,7 +53,7 @@ export function VideoImporter({ onAddVideo }) {
           <span className="text-sm font-medium text-[#26332b]">
             Lien YouTube
           </span>
-          <div className="flex items-center gap-2 rounded-md border border-[#d9e0da] bg-white px-3 focus-within:border-[#315b40] focus-within:ring-2 focus-within:ring-[#d8e7dc]">
+          <div className="flex items-center gap-2 rounded-md border border-[#d9e0da] bg-[#fbfcfb] px-3 focus-within:border-[#315b40] focus-within:ring-2 focus-within:ring-[#d8e7dc]">
             <Link className="h-4 w-4 shrink-0 text-[#68756d]" />
             <input
               value={youtubeUrl}
