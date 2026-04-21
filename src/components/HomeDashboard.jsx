@@ -105,6 +105,7 @@ export function HomeDashboard({
   quizProgressByVideoId = {},
   importError,
   backupStatus,
+  canUseAi,
   onAddVideo,
   onSaveLibrary,
   onRestoreLibrary,
@@ -198,7 +199,7 @@ export function HomeDashboard({
             </p>
           )}
         </section>
-        <VideoImporter onAddVideo={onAddVideo} />
+        <VideoImporter canUseAi={canUseAi} onAddVideo={onAddVideo} />
         {importError && (
           <div className="rounded-md border border-[#f1c8c2] bg-[#fff6f4] p-3 text-sm font-medium text-[#a13d32]">
             {importError}

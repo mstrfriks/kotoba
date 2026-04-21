@@ -5,6 +5,9 @@ import { SubtitlesPanel } from "./components/SubtitlesPanel";
 import { HomeDashboard } from "./components/HomeDashboard";
 import { Button } from "./components/ui/Button";
 import {
+  analyzeScript,
+  generateAiLexicon,
+  generateAiQuiz,
   getAccessToken,
   getApiHealth,
   getLatestLibraryBackup,
@@ -679,7 +682,7 @@ export default function App() {
     saveAccessToken(value);
   }
 
-  function addVideo({ youtubeUrl, subtitles }) {
+  async function addVideo({ youtubeUrl, subtitles, importAiOptions }) {
     const youtubeId = extractYoutubeId(youtubeUrl);
     if (!youtubeId) {
       setImportError("Le lien YouTube n'est pas valide.");
@@ -741,7 +744,99 @@ export default function App() {
       return remainingProgress;
     });
     setSelectedVideoId(id);
+
+    if (importAiOptions?.enabled) {
+      await generateImportedStudyPack({
+        videoId: id,
+        level: selectedLevel,
+        rawSubtitles,
+        questionCount: importAiOptions.questionCount,
+        quizType: importAiOptions.quizType,
+        lexiconCount: importAiOptions.lexiconCount,
+      });
+    }
+
     return true;
+  }
+
+  async function generateImportedStudyPack({
+    videoId,
+    level,
+    rawSubtitles,
+    questionCount = 8,
+    quizType = "comprehension",
+    lexiconCount = 18,
+  }) {
+    const sentences = parseSrtSentences(rawSubtitles);
+    const script = cleanSrtText(rawSubtitles);
+    setBackupStatus("Import IA : traductions, lexique et QCM...");
+
+    try {
+      const [analysis, vocabulary, questions] = await Promise.all([
+        analyzeScript({ sentences, level }),
+        generateAiLexicon({
+          script,
+          level,
+          maxItems: lexiconCount,
+          vocabulary: [],
+        }),
+        generateAiQuiz({
+          script,
+          level,
+          questionCount,
+          quizType,
+        }),
+      ]);
+
+      if (!questions.length) {
+        throw new Error("L'IA n'a pas renvoye de questions exploitables.");
+      }
+
+      const now = new Date().toISOString();
+      setAnalysisByVideoId((analyses) => ({
+        ...analyses,
+        [videoId]: analysis,
+      }));
+      setStudyCardsByVideoId((cardsByVideoId) => ({
+        ...cardsByVideoId,
+        [videoId]: makeStudyCards({
+          videoId,
+          vocabulary,
+          sentences,
+          analysis,
+        }),
+      }));
+      setVideos((currentVideos) =>
+        currentVideos.map((video) =>
+          video.id === videoId
+            ? {
+                ...video,
+                updatedAt: now,
+                vocabulary,
+                quiz: questions,
+                focus: [
+                  ...new Set([
+                    ...(video.focus ?? []).filter(
+                      (item) => item !== "Lexique auto" && item !== "Quiz auto"
+                    ),
+                    "Traductions IA",
+                    "Lexique IA",
+                    "QCM IA",
+                  ]),
+                ],
+              }
+            : video
+        )
+      );
+      setQuizProgressByVideoId((progress) => {
+        const { [videoId]: ignored, ...remainingProgress } = progress;
+        return remainingProgress;
+      });
+      setBackupStatus("Import IA termine.");
+    } catch (error) {
+      setImportError(error.message);
+      setBackupStatus("");
+    }
   }
 
   function updateSubtitles(value) {
@@ -1287,6 +1382,7 @@ export default function App() {
             quizProgressByVideoId={quizProgressByVideoId}
             importError={importError}
             backupStatus={backupStatus}
+            canUseAi={canUseAi}
             onAddVideo={addVideo}
             onSaveLibrary={saveLibraryToServer}
             onRestoreLibrary={restoreLatestLibraryBackup}

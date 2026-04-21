@@ -1,10 +1,11 @@
 import { CheckCircle2, RotateCcw } from "lucide-react";
-import { cn } from "../lib/utils";
+import { addFuriganaToText, cn } from "../lib/utils";
 import { Button } from "./ui/Button";
 
 export function QuizPanel({
   questions,
   canUseAi,
+  vocabulary = [],
   currentIndex,
   selectedChoice,
   isValidated,
@@ -23,6 +24,9 @@ export function QuizPanel({
   const isCorrect = selectedChoice === question?.answerIndex;
   const explanation = question?.explanation;
   const answeredCount = Math.min(total, currentIndex + (isValidated ? 1 : 0));
+  const renderJapanese = (value) => ({
+    __html: addFuriganaToText(String(value ?? ""), vocabulary, "always"),
+  });
 
   if (!total) {
     return (
@@ -81,12 +85,10 @@ export function QuizPanel({
         <p className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
           Question
         </p>
-        <h3 className="mt-2 text-xl font-semibold text-[#1d2b22]">
-          {question.prompt}
-        </h3>
-        <p className="mt-3 rounded-md bg-[#f7f9f7] p-4 text-lg leading-8 text-[#243229]">
-          {question.sentence}
-        </p>
+        <h3
+          className="mt-2 text-xl font-semibold leading-9 text-[#1d2b22]"
+          dangerouslySetInnerHTML={renderJapanese(question.prompt)}
+        />
       </div>
       <div className="mt-5 grid gap-2">
         {choices.map((choice, index) => {
@@ -111,7 +113,7 @@ export function QuizPanel({
               )}
               disabled={isValidated}
             >
-              {choice}
+              <span dangerouslySetInnerHTML={renderJapanese(choice)} />
             </button>
           );
         })}
@@ -125,7 +127,10 @@ export function QuizPanel({
         >
           <p>{isCorrect ? "正解です。" : "もう一度確認しましょう。"}</p>
           {explanation && (
-            <p className="mt-2 font-normal text-[#405048]">{explanation}</p>
+            <p
+              className="mt-2 font-normal text-[#405048]"
+              dangerouslySetInnerHTML={renderJapanese(explanation)}
+            />
           )}
         </div>
       )}

@@ -101,6 +101,14 @@ export function StudyPanel({
   }
 
   async function handleGenerateQuiz() {
+    if (
+      Array.isArray(video.quiz) &&
+      video.quiz.length &&
+      !window.confirm("Relancer le QCM IA utilisera de nouveaux tokens OpenAI.")
+    ) {
+      return;
+    }
+
     setQuizError("");
     setIsGeneratingQuiz(true);
 
@@ -111,6 +119,9 @@ export function StudyPanel({
         questionCount,
         quizType,
       });
+      if (!questions.length) {
+        throw new Error("L'IA n'a pas renvoye de questions exploitables.");
+      }
       onQuizGenerated(questions);
       setActiveMode("quiz");
       restartQuiz();
@@ -122,6 +133,16 @@ export function StudyPanel({
   }
 
   async function handleGenerateLexicon() {
+    if (
+      Array.isArray(video.vocabulary) &&
+      video.vocabulary.length &&
+      !window.confirm(
+        "Relancer le lexique IA utilisera de nouveaux tokens OpenAI."
+      )
+    ) {
+      return;
+    }
+
     setQuizError("");
     setIsGeneratingLexicon(true);
 
@@ -144,6 +165,16 @@ export function StudyPanel({
   }
 
   async function handleGenerateStudyPack() {
+    if (
+      (Array.isArray(video.quiz) && video.quiz.length) ||
+      (Array.isArray(video.vocabulary) && video.vocabulary.length)
+    ) {
+      const confirmed = window.confirm(
+        "Relancer Tout IA remplacera le lexique et le QCM, et utilisera de nouveaux tokens OpenAI."
+      );
+      if (!confirmed) return;
+    }
+
     setQuizError("");
     setIsGeneratingStudyPack(true);
 
@@ -164,6 +195,9 @@ export function StudyPanel({
         questionCount,
         quizType,
       });
+      if (!questions.length) {
+        throw new Error("L'IA n'a pas renvoye de questions exploitables.");
+      }
       onQuizGenerated(questions);
       setActiveMode("quiz");
       restartQuiz();
@@ -326,6 +360,7 @@ export function StudyPanel({
           <QuizPanel
             questions={video.quiz}
             canUseAi={canUseAi}
+            vocabulary={video.vocabulary}
             currentIndex={quizIndex}
             selectedChoice={selectedChoice}
             isValidated={isValidated}

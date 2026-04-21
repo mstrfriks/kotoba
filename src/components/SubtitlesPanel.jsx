@@ -256,6 +256,15 @@ export function SubtitlesPanel({
   }
 
   async function handleAnalyzeScript() {
+    if (
+      analysis &&
+      !window.confirm(
+        "Relancer l'analyse et les traductions utilisera de nouveaux tokens OpenAI."
+      )
+    ) {
+      return;
+    }
+
     setError("");
     setIsAnalyzing(true);
 

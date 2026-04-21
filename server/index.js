@@ -123,18 +123,57 @@ function limitText(value, maxCharacters) {
   return text.slice(0, maxCharacters);
 }
 
-function normalizeQuizQuestions(questions) {
-  if (!Array.isArray(questions)) return [];
+function makeScriptOverview(script) {
+  return script
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 80)
+    .map((line, index) => `${index + 1}. ${line}`)
+    .join("\n");
+}
 
-  return questions
+function normalizeQuizQuestions(questions) {
+  const sourceQuestions = Array.isArray(questions?.questions)
+    ? questions.questions
+    : questions;
+  if (!Array.isArray(sourceQuestions)) return [];
+
+  return sourceQuestions
     .map((question) => {
       const choices = Array.isArray(question?.choices)
-        ? question.choices.map((choice) => String(choice)).filter(Boolean)
+        ? question.choices
+            .map((choice) =>
+              typeof choice === "object"
+                ? String(choice?.text ?? choice?.label ?? choice?.answer ?? "")
+                : String(choice)
+            )
+            .map((choice) => choice.trim())
+            .filter(Boolean)
         : [];
-      const answerIndex = Number(question?.answerIndex);
+      const rawAnswerIndex =
+        question?.answerIndex ?? question?.correctIndex ?? question?.correct;
+      let answerIndex = Number(rawAnswerIndex);
+      const answerText = String(
+        question?.answer ?? question?.correctAnswer ?? question?.correctChoice ?? ""
+      ).trim();
 
       if (
-        !question?.prompt ||
+        (!Number.isInteger(answerIndex) || answerIndex < 0) &&
+        /^[A-D]$/i.test(String(rawAnswerIndex ?? ""))
+      ) {
+        answerIndex = String(rawAnswerIndex).toUpperCase().charCodeAt(0) - 65;
+      }
+
+      if (
+        (!Number.isInteger(answerIndex) || answerIndex < 0) &&
+        answerText
+      ) {
+        answerIndex = choices.findIndex((choice) => choice === answerText);
+      }
+
+      if (
+        !question?.prompt && !question?.question ||
         choices.length !== 4 ||
         !Number.isInteger(answerIndex) ||
         answerIndex < 0 ||
@@ -144,14 +183,15 @@ function normalizeQuizQuestions(questions) {
       }
 
       return {
-        prompt: String(question.prompt),
-        sentence: String(question.sentence ?? ""),
+        prompt: String(question.prompt ?? question.question),
+        sentence: String(question.sentence ?? question.context ?? ""),
         choices,
         answerIndex,
         explanation: String(question.explanation ?? ""),
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .slice(0, 12);
 }
 
 function normalizeVocabularyItems(items) {
@@ -456,29 +496,60 @@ app.post("/api/generate-quiz", async (request, response, next) => {
 
     const rawJson = await createTextResponse({
       instructions:
-        "Tu generes un QCM pour un francophone qui apprend le japonais. Reponds en JSON valide uniquement. Adapte les questions au type demande : comprehension globale, vocabulaire contextualise ou grammaire utile.",
+        [
+          "Tu es un professeur de japonais exigeant.",
+          "Tu crees un QCM de comprehension pour un etudiant francophone, mais le QCM lui-meme doit etre entierement en japonais.",
+          "Le niveau cible est JLPT, avec difficulte adaptee au niveau fourni. Pour N4, utilise un japonais naturel mais simple : phrases courtes, vocabulaire courant, grammaire N5/N4, pas de keigo complexe.",
+          "Les questions doivent verifier la comprehension de l'integralite du texte, pas seulement une phrase isolee. Couvre le debut, le milieu, la fin, les relations cause/consequence, les intentions, les faits importants et les changements de situation.",
+          "Ne donne pas dans la question un extrait qui contient directement la reponse. Le champ sentence sert seulement de reference interne courte, pas d'indice pour l'etudiant.",
+          "Chaque question doit etre en japonais. Les 4 choix doivent etre en japonais. L'explication doit etre en japonais clair et expliquer pourquoi la bonne reponse est correcte, avec un indice ou une reference au contenu du texte.",
+          "Evite les questions triviales de vocabulaire si le type demande est comprehension. Les distracteurs doivent etre plausibles mais contredits par le texte.",
+          "Reponds en JSON valide uniquement, sans markdown. La racine doit etre un objet avec une cle questions. Chaque question doit avoir exactement prompt, sentence, choices, answerIndex, explanation. choices doit contenir exactement 4 chaines japonaises. answerIndex doit etre un entier 0, 1, 2 ou 3.",
+        ].join(" "),
       input: JSON.stringify({
         level,
         quizType,
         questionCount,
+        language: "ja",
+        requirements: {
+          promptLanguage: "ja",
+          choicesLanguage: "ja",
+          explanationLanguage: "ja",
+          coverWholeText: true,
+          comprehensionFirst: quizType === "comprehension",
+        },
         expectedShape: {
           questions: [
             {
-              prompt: "question en francais",
-              sentence: "extrait japonais court ou contexte",
-              choices: ["choix A", "choix B", "choix C", "choix D"],
+              prompt: "主人公はどうして店へ行きましたか。",
+              sentence: "reference interne courte, sans indice direct",
+              choices: [
+                "新しい本を買いたかったからです。",
+                "友だちに会いたかったからです。",
+                "駅へ行く必要があったからです。",
+                "先生に質問したかったからです。",
+              ],
               answerIndex: 0,
-              explanation: "explication courte en francais",
+              explanation:
+                "本文では、主人公が本について話してから店へ行くので、正しい答えは一番目です。他の選択肢は本文にありません。",
             },
           ],
         },
+        scriptOverview: makeScriptOverview(limitText(script, 12000)),
         script: limitText(script, 12000),
       }),
-      maxOutputTokens: 3200,
+      maxOutputTokens: 4500,
     });
 
     const parsed = parseJsonOutput(rawJson);
-    const questions = normalizeQuizQuestions(parsed.questions);
+    const questions = normalizeQuizQuestions(parsed.questions ?? parsed);
+    if (!questions.length) {
+      const error = new Error(
+        "La reponse IA ne contient aucune question QCM exploitable. Reessaie avec moins de questions ou un autre type de QCM."
+      );
+      error.status = 502;
+      throw error;
+    }
     response.json({ questions });
   } catch (error) {
     next(error);
