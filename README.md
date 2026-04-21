@@ -60,6 +60,16 @@ cp .env.example .env
 
 Puis renseigner `OPENAI_API_KEY` dans `.env`.
 
+Si le backend est accessible depuis un autre appareil ou un reseau public,
+ajouter aussi un token d'acces local :
+
+```sh
+KOTOBA_ACCESS_TOKEN=une-longue-valeur-aleatoire
+```
+
+Quand ce token est defini, l'interface demande ce token dans la barre du haut
+et l'envoie au backend via l'en-tete `X-Kotoba-Token`.
+
 ## Developpement
 
 ```sh
@@ -83,10 +93,15 @@ Le dossier `server/` expose une API locale utilisee par l'interface React.
 Endpoints disponibles :
 
 - `GET /api/health` : verifier que le serveur local est lance.
+- `GET /api/library` : charger la bibliotheque partagee.
+- `PUT /api/library` : synchroniser la bibliotheque partagee.
+- `POST /api/library-backup` : creer une sauvegarde datee.
 - `POST /api/translate-sentence` : traduire une phrase japonaise en francais selon le niveau de l'utilisateur.
 - `POST /api/generate-quiz` : generer un QCM de comprehension a partir du script complet.
 
-La cle API reste dans `.env` et n'est pas exposee dans le navigateur.
+La cle OpenAI reste dans `.env` et n'est pas exposee dans le navigateur. Le
+token `KOTOBA_ACCESS_TOKEN` protege les endpoints de donnees et les appels IA
+si le serveur est joignable depuis l'exterieur.
 
 ## Build
 

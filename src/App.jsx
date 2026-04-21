@@ -5,10 +5,12 @@ import { SubtitlesPanel } from "./components/SubtitlesPanel";
 import { HomeDashboard } from "./components/HomeDashboard";
 import { Button } from "./components/ui/Button";
 import {
+  getAccessToken,
   getApiHealth,
   getLatestLibraryBackup,
   getSharedLibrary,
   saveLibraryBackup,
+  saveAccessToken,
   saveSharedLibrary,
 } from "./lib/api";
 import {
@@ -412,6 +414,7 @@ export default function App() {
   const [selectedLevel, setSelectedLevel] = useState(library.selectedLevel);
   const [importError, setImportError] = useState("");
   const [backupStatus, setBackupStatus] = useState("");
+  const [accessToken, setAccessToken] = useState(getAccessToken);
   const hasLoadedSharedLibraryRef = useRef(false);
   const isSharedSyncReadyRef = useRef(false);
   const isApplyingSharedLibraryRef = useRef(false);
@@ -422,6 +425,7 @@ export default function App() {
   const [apiHealth, setApiHealth] = useState({
     status: "checking",
     hasOpenAiKey: false,
+    hasAccessToken: false,
     model: "",
   });
 
@@ -507,6 +511,7 @@ export default function App() {
         setApiHealth({
           status: "online",
           hasOpenAiKey: Boolean(health.hasOpenAiKey),
+          hasAccessToken: Boolean(health.hasAccessToken),
           model: health.model ?? "",
         });
       })
@@ -515,6 +520,7 @@ export default function App() {
         setApiHealth({
           status: "offline",
           hasOpenAiKey: false,
+          hasAccessToken: false,
           model: "",
         });
       });
@@ -525,7 +531,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (apiHealth.status !== "online" || hasLoadedSharedLibraryRef.current) {
+    if (
+      apiHealth.status !== "online" ||
+      hasLoadedSharedLibraryRef.current ||
+      (apiHealth.hasAccessToken && !accessToken)
+    ) {
       return;
     }
 
@@ -550,6 +560,10 @@ export default function App() {
       })
       .catch((error) => {
         if (error.status !== 404) {
+          if (error.status === 401) {
+            hasLoadedSharedLibraryRef.current = false;
+            isSharedSyncReadyRef.current = false;
+          }
           setBackupStatus(error.message);
           return;
         }
@@ -568,13 +582,21 @@ export default function App() {
             setBackupStatus("Bibliotheque locale envoyee au serveur.");
           })
           .catch((syncError) => {
+            if (syncError.status === 401) {
+              hasLoadedSharedLibraryRef.current = false;
+              isSharedSyncReadyRef.current = false;
+            }
             setBackupStatus(syncError.message);
           });
       });
-  }, [apiHealth.status]);
+  }, [apiHealth.status, apiHealth.hasAccessToken, accessToken]);
 
   useEffect(() => {
-    if (apiHealth.status !== "online" || !hasLoadedSharedLibraryRef.current) {
+    if (
+      apiHealth.status !== "online" ||
+      !hasLoadedSharedLibraryRef.current ||
+      (apiHealth.hasAccessToken && !accessToken)
+    ) {
       return;
     }
 
@@ -632,17 +654,30 @@ export default function App() {
     deletedVideoIds,
     selectedLevel,
     apiHealth.status,
+    apiHealth.hasAccessToken,
+    accessToken,
   ]);
 
-  const canUseAi = apiHealth.status === "online" && apiHealth.hasOpenAiKey;
+  const hasRequiredAccessToken = !apiHealth.hasAccessToken || Boolean(accessToken);
+  const canUseAi =
+    apiHealth.status === "online" &&
+    apiHealth.hasOpenAiKey &&
+    hasRequiredAccessToken;
   const aiStatusLabel =
     apiHealth.status === "checking"
       ? "API..."
       : canUseAi
         ? `IA ${apiHealth.model || "prete"}`
+        : apiHealth.status === "online" && apiHealth.hasAccessToken
+          ? "Token requis"
         : apiHealth.status === "online"
           ? "Cle API manquante"
           : "API hors ligne";
+
+  function updateAccessToken(value) {
+    setAccessToken(value);
+    saveAccessToken(value);
+  }
 
   function addVideo({ youtubeUrl, subtitles }) {
     const youtubeId = extractYoutubeId(youtubeUrl);
@@ -1160,6 +1195,20 @@ export default function App() {
             >
               {aiStatusLabel}
             </div>
+            {apiHealth.hasAccessToken && (
+              <label className="grid gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[#7a857e]">
+                  Token
+                </span>
+                <input
+                  type="password"
+                  value={accessToken}
+                  onChange={(event) => updateAccessToken(event.target.value)}
+                  className="h-10 w-44 rounded-md border border-[#d9e0da] bg-white px-3 text-sm font-medium text-[#26332b] outline-none transition placeholder:text-[#9aa39d] focus:border-[#315b40] focus:ring-2 focus:ring-[#d8e7dc]"
+                  placeholder="Acces Kotoba"
+                />
+              </label>
+            )}
             {selectedVideo && (
               <Button variant="secondary" onClick={showLibrary}>
                 Parcours

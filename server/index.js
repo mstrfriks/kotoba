@@ -9,6 +9,7 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.PORT) || 8787;
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
+const accessToken = process.env.KOTOBA_ACCESS_TOKEN || "";
 const backupDir =
   process.env.KOTOBA_BACKUP_DIR || path.join(__dirname, "..", "backups");
 const currentLibraryFilename = "kotoba-bibliotheque-current.json";
@@ -16,6 +17,24 @@ const currentLibraryPath = path.join(backupDir, currentLibraryFilename);
 
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
+
+function requireAccessToken(request, response, next) {
+  if (!accessToken) {
+    next();
+    return;
+  }
+
+  const bearerToken = request.get("authorization")?.replace(/^Bearer\s+/i, "");
+  const requestToken = request.get("x-kotoba-token") || bearerToken;
+  if (requestToken === accessToken) {
+    next();
+    return;
+  }
+
+  response.status(401).json({
+    error: "Acces Kotoba refuse. Renseigne le token d'acces local.",
+  });
+}
 
 function requireApiKey() {
   if (!process.env.OPENAI_API_KEY) {
@@ -178,8 +197,11 @@ app.get("/api/health", (request, response) => {
     ok: true,
     model,
     hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
+    hasAccessToken: Boolean(accessToken),
   });
 });
+
+app.use("/api", requireAccessToken);
 
 app.get("/api/library", async (request, response, next) => {
   try {
