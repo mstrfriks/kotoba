@@ -106,7 +106,21 @@ function parseJsonOutput(value) {
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "");
 
-  return JSON.parse(cleanValue);
+  try {
+    return JSON.parse(cleanValue);
+  } catch {
+    const error = new Error(
+      "La reponse IA est incomplete. Reessaie avec moins de lignes SRT, moins de mots ou moins de questions."
+    );
+    error.status = 502;
+    throw error;
+  }
+}
+
+function limitText(value, maxCharacters) {
+  const text = String(value ?? "").trim();
+  if (text.length <= maxCharacters) return text;
+  return text.slice(0, maxCharacters);
 }
 
 function normalizeQuizQuestions(questions) {
@@ -405,9 +419,9 @@ app.post("/api/analyze-script", async (request, response, next) => {
             },
           ],
         },
-        sentences: normalizedSentences,
+        sentences: normalizedSentences.slice(0, 60),
       }),
-      maxOutputTokens: 6000,
+      maxOutputTokens: 9000,
     });
 
     const parsed = parseJsonOutput(rawJson);
@@ -458,9 +472,9 @@ app.post("/api/generate-quiz", async (request, response, next) => {
             },
           ],
         },
-        script,
+        script: limitText(script, 12000),
       }),
-      maxOutputTokens: 1800,
+      maxOutputTokens: 3200,
     });
 
     const parsed = parseJsonOutput(rawJson);
@@ -506,9 +520,9 @@ app.post("/api/generate-lexicon", async (request, response, next) => {
             },
           ],
         },
-        script,
+        script: limitText(script, 12000),
       }),
-      maxOutputTokens: 3500,
+      maxOutputTokens: 5000,
     });
 
     const parsed = parseJsonOutput(rawJson);
