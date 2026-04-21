@@ -1,15 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { VideoPlayer } from "./components/VideoPlayer";
 import { StudyPanel } from "./components/StudyPanel";
 import { SubtitlesPanel } from "./components/SubtitlesPanel";
 import { HomeDashboard } from "./components/HomeDashboard";
 import { Button } from "./components/ui/Button";
-import { getApiHealth } from "./lib/api";
+import {
+  getApiHealth,
+  getLatestLibraryBackup,
+  getSharedLibrary,
+  saveLibraryBackup,
+  saveSharedLibrary,
+} from "./lib/api";
 import {
   cleanSrtText,
   extractYoutubeId,
   generateStudyMaterials,
   makeVideoTitle,
+  makeStudyCards,
   parseSrtSentences,
   studyLevels,
 } from "./lib/utils";
@@ -22,6 +29,9 @@ const EMPTY_LIBRARY = {
   subtitleDrafts: {},
   analysisByVideoId: {},
   quizProgressByVideoId: {},
+  studyCardsByVideoId: {},
+  reviewProgressByCardId: {},
+  deletedVideoIds: {},
   selectedLevel: "N5",
 };
 
@@ -32,6 +42,9 @@ function makeEmptyLibrary() {
     subtitleDrafts: {},
     analysisByVideoId: {},
     quizProgressByVideoId: {},
+    studyCardsByVideoId: {},
+    reviewProgressByCardId: {},
+    deletedVideoIds: {},
   };
 }
 
@@ -47,6 +60,10 @@ function hasQcmQuiz(video) {
           Number.isInteger(question?.answerIndex)
       )
     : false;
+}
+
+function hasVideoFocus(video, value) {
+  return Array.isArray(video?.focus) && video.focus.includes(value);
 }
 
 function formatStudyDuration(stats) {
@@ -87,6 +104,43 @@ function normalizeQuizProgress(value) {
   );
 }
 
+function normalizeDeletedVideoIds(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([videoId]) => typeof videoId === "string" && videoId)
+      .map(([videoId, deletedAt]) => [
+        videoId,
+        typeof deletedAt === "string" && deletedAt
+          ? deletedAt
+          : new Date(0).toISOString(),
+      ])
+  );
+}
+
+function normalizeRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+}
+
+function getProgressTimestamp(progress) {
+  return Date.parse(progress?.updatedAt ?? "") || 0;
+}
+
+function getReviewTimestamp(progress) {
+  return Date.parse(progress?.reviewedAt ?? "") || 0;
+}
+
+function getVideoTimestamp(video) {
+  return Date.parse(video?.updatedAt ?? video?.createdAt ?? "") || 0;
+}
+
+function getDeletedTimestamp(deletedVideoIds, videoId) {
+  return Date.parse(deletedVideoIds?.[videoId] ?? "") || 0;
+}
+
 function loadStoredLibrary() {
   if (typeof window === "undefined") return makeEmptyLibrary();
 
@@ -125,6 +179,9 @@ function normalizeLibrary(value) {
   const quizProgressByVideoId = normalizeQuizProgress(
     source?.quizProgressByVideoId
   );
+  const studyCardsByVideoId = normalizeRecord(source?.studyCardsByVideoId);
+  const reviewProgressByCardId = normalizeRecord(source?.reviewProgressByCardId);
+  const deletedVideoIds = normalizeDeletedVideoIds(source?.deletedVideoIds);
   const selectedVideoId =
     typeof source?.selectedVideoId === "string" &&
     videos.some((video) => video.id === source.selectedVideoId)
@@ -139,17 +196,48 @@ function normalizeLibrary(value) {
       ? videoLevel
       : EMPTY_LIBRARY.selectedLevel;
   const migratedVideos = videos.map((video) => {
-    if (hasQcmQuiz(video)) return video;
-
     const level = isStudyLevel(video.level) ? video.level : selectedLevel;
     const subtitles = subtitleDrafts[video.id] ?? "";
     const materials = generateStudyMaterials(subtitles, level);
+    const hasAiLexicon = hasVideoFocus(video, "Lexique IA");
+    const hasAiQuiz = hasVideoFocus(video, "QCM IA");
+    const storedVocabulary = Array.isArray(video.vocabulary)
+      ? video.vocabulary
+      : [];
+    const storedQuiz = hasQcmQuiz(video) ? video.quiz : [];
+    const now = new Date().toISOString();
+    const createdAt =
+      typeof video.createdAt === "string" && video.createdAt
+        ? video.createdAt
+        : typeof video.updatedAt === "string" && video.updatedAt
+          ? video.updatedAt
+          : now;
+
     return {
       ...video,
+      createdAt,
+      updatedAt:
+        typeof video.updatedAt === "string" && video.updatedAt
+          ? video.updatedAt
+          : createdAt,
       level,
       duration: formatStudyDuration(materials.stats),
-      vocabulary: materials.vocabulary,
-      quiz: materials.quiz,
+      localVocabulary: Array.isArray(video.localVocabulary)
+        ? video.localVocabulary
+        : hasAiLexicon
+          ? materials.vocabulary
+          : storedVocabulary.length > 0
+            ? storedVocabulary
+            : materials.vocabulary,
+      localQuiz: Array.isArray(video.localQuiz)
+        ? video.localQuiz
+        : hasAiQuiz
+          ? materials.quiz
+          : storedQuiz.length > 0
+            ? storedQuiz
+            : materials.quiz,
+      vocabulary: hasAiLexicon ? storedVocabulary : [],
+      quiz: hasAiQuiz ? storedQuiz : [],
     };
   });
 
@@ -159,8 +247,144 @@ function normalizeLibrary(value) {
     subtitleDrafts,
     analysisByVideoId,
     quizProgressByVideoId,
+    studyCardsByVideoId,
+    reviewProgressByCardId,
+    deletedVideoIds,
     selectedLevel,
   };
+}
+
+function hasLibraryContent(library) {
+  return Array.isArray(library?.videos) && library.videos.length > 0;
+}
+
+function mergeQuizProgress(localProgress, remoteProgress) {
+  const localTime = getProgressTimestamp(localProgress);
+  const remoteTime = getProgressTimestamp(remoteProgress);
+  const latestProgress =
+    remoteTime > localTime ? remoteProgress : localProgress;
+
+  return {
+    ...latestProgress,
+    bestScore: Math.max(
+      Number(localProgress?.bestScore) || 0,
+      Number(remoteProgress?.bestScore) || 0
+    ),
+  };
+}
+
+function mergeReviewProgress(localProgress = {}, remoteProgress = {}) {
+  const mergedProgress = {};
+  for (const cardId of new Set([
+    ...Object.keys(localProgress),
+    ...Object.keys(remoteProgress),
+  ])) {
+    mergedProgress[cardId] =
+      getReviewTimestamp(localProgress[cardId]) >=
+      getReviewTimestamp(remoteProgress[cardId])
+        ? localProgress[cardId]
+        : remoteProgress[cardId];
+  }
+  return mergedProgress;
+}
+
+function mergeLibraries(localLibrary, remoteLibrary) {
+  const local = normalizeLibrary(localLibrary);
+  const remote = normalizeLibrary(remoteLibrary);
+  const deletedVideoIds = {};
+  for (const videoId of new Set([
+    ...Object.keys(local.deletedVideoIds),
+    ...Object.keys(remote.deletedVideoIds),
+  ])) {
+    deletedVideoIds[videoId] =
+      getDeletedTimestamp(local.deletedVideoIds, videoId) >=
+      getDeletedTimestamp(remote.deletedVideoIds, videoId)
+        ? local.deletedVideoIds[videoId]
+        : remote.deletedVideoIds[videoId];
+  }
+  const videosById = new Map();
+
+  for (const video of [...remote.videos, ...local.videos]) {
+    const deletedAt = getDeletedTimestamp(deletedVideoIds, video.id);
+    if (deletedAt && deletedAt >= getVideoTimestamp(video)) continue;
+
+    const previousVideo = videosById.get(video.id);
+    if (
+      !previousVideo ||
+      getVideoTimestamp(video) >= getVideoTimestamp(previousVideo)
+    ) {
+      videosById.set(video.id, video);
+    }
+  }
+
+  const videos = [...videosById.values()].sort(
+    (a, b) => getVideoTimestamp(b) - getVideoTimestamp(a)
+  );
+  const liveVideoIds = new Set(videos.map((video) => video.id));
+  const subtitleDrafts = {};
+  const analysisByVideoId = {};
+  const quizProgressByVideoId = {};
+  const studyCardsByVideoId = {};
+
+  for (const video of videos) {
+    const localVideoTime = getVideoTimestamp(
+      local.videos.find((item) => item.id === video.id)
+    );
+    const remoteVideoTime = getVideoTimestamp(
+      remote.videos.find((item) => item.id === video.id)
+    );
+    subtitleDrafts[video.id] =
+      localVideoTime >= remoteVideoTime
+        ? local.subtitleDrafts[video.id] ?? remote.subtitleDrafts[video.id] ?? ""
+        : remote.subtitleDrafts[video.id] ??
+          local.subtitleDrafts[video.id] ??
+          "";
+
+    analysisByVideoId[video.id] =
+      localVideoTime >= remoteVideoTime
+        ? local.analysisByVideoId[video.id] ?? remote.analysisByVideoId[video.id]
+        : remote.analysisByVideoId[video.id] ??
+          local.analysisByVideoId[video.id];
+
+    quizProgressByVideoId[video.id] = mergeQuizProgress(
+      local.quizProgressByVideoId[video.id],
+      remote.quizProgressByVideoId[video.id]
+    );
+
+    if (!quizProgressByVideoId[video.id]?.total) {
+      delete quizProgressByVideoId[video.id];
+    }
+
+    studyCardsByVideoId[video.id] =
+      localVideoTime >= remoteVideoTime
+        ? local.studyCardsByVideoId[video.id] ??
+          remote.studyCardsByVideoId[video.id] ??
+          []
+        : remote.studyCardsByVideoId[video.id] ??
+          local.studyCardsByVideoId[video.id] ??
+          [];
+  }
+
+  const selectedVideoId = liveVideoIds.has(local.selectedVideoId)
+    ? local.selectedVideoId
+    : liveVideoIds.has(remote.selectedVideoId)
+      ? remote.selectedVideoId
+      : videos[0]?.id ?? "";
+
+  return normalizeLibrary({
+    videos,
+    selectedVideoId,
+    subtitleDrafts,
+    analysisByVideoId,
+    quizProgressByVideoId,
+    studyCardsByVideoId,
+    reviewProgressByCardId: mergeReviewProgress(
+      local.reviewProgressByCardId,
+      remote.reviewProgressByCardId
+    ),
+    deletedVideoIds,
+    selectedLevel: local.selectedLevel || remote.selectedLevel,
+  });
 }
 
 export default function App() {
@@ -176,8 +400,23 @@ export default function App() {
   const [quizProgressByVideoId, setQuizProgressByVideoId] = useState(
     library.quizProgressByVideoId
   );
+  const [studyCardsByVideoId, setStudyCardsByVideoId] = useState(
+    library.studyCardsByVideoId
+  );
+  const [reviewProgressByCardId, setReviewProgressByCardId] = useState(
+    library.reviewProgressByCardId
+  );
+  const [deletedVideoIds, setDeletedVideoIds] = useState(
+    library.deletedVideoIds
+  );
   const [selectedLevel, setSelectedLevel] = useState(library.selectedLevel);
   const [importError, setImportError] = useState("");
+  const [backupStatus, setBackupStatus] = useState("");
+  const hasLoadedSharedLibraryRef = useRef(false);
+  const isSharedSyncReadyRef = useRef(false);
+  const isApplyingSharedLibraryRef = useRef(false);
+  const serverRevisionRef = useRef("");
+  const syncTimerRef = useRef(null);
   const [playbackTime, setPlaybackTime] = useState(0);
   const [seekRequest, setSeekRequest] = useState(null);
   const [apiHealth, setApiHealth] = useState({
@@ -208,6 +447,23 @@ export default function App() {
       ) ?? null,
     [playbackTime, selectedSubtitleSentences]
   );
+  const selectedReviewCards = useMemo(() => {
+    if (!selectedVideo) return [];
+    const storedCards = studyCardsByVideoId[selectedVideo.id];
+    if (Array.isArray(storedCards) && storedCards.length) return storedCards;
+
+    return makeStudyCards({
+      videoId: selectedVideo.id,
+      vocabulary: selectedVideo.vocabulary,
+      sentences: selectedSubtitleSentences,
+      analysis: analysisByVideoId[selectedVideo.id],
+    });
+  }, [
+    selectedVideo,
+    selectedSubtitleSentences,
+    analysisByVideoId,
+    studyCardsByVideoId,
+  ]);
 
   useEffect(() => {
     try {
@@ -219,6 +475,9 @@ export default function App() {
           subtitleDrafts,
           analysisByVideoId,
           quizProgressByVideoId,
+          studyCardsByVideoId,
+          reviewProgressByCardId,
+          deletedVideoIds,
           selectedLevel,
         })
       );
@@ -233,6 +492,9 @@ export default function App() {
     subtitleDrafts,
     analysisByVideoId,
     quizProgressByVideoId,
+    studyCardsByVideoId,
+    reviewProgressByCardId,
+    deletedVideoIds,
     selectedLevel,
   ]);
 
@@ -262,6 +524,116 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (apiHealth.status !== "online" || hasLoadedSharedLibraryRef.current) {
+      return;
+    }
+
+    hasLoadedSharedLibraryRef.current = true;
+    setBackupStatus("Synchronisation serveur...");
+
+    getSharedLibrary()
+      .then((result) => {
+        const sharedLibrary = normalizeLibrary(result.library);
+        serverRevisionRef.current = result.revision ?? "";
+        if (!hasLibraryContent(sharedLibrary)) {
+          isSharedSyncReadyRef.current = true;
+          setBackupStatus("Aucune bibliotheque serveur.");
+          return;
+        }
+
+        isApplyingSharedLibraryRef.current = true;
+        applyLibrary(sharedLibrary);
+        isSharedSyncReadyRef.current = true;
+        setImportError("");
+        setBackupStatus("Bibliotheque serveur chargee.");
+      })
+      .catch((error) => {
+        if (error.status !== 404) {
+          setBackupStatus(error.message);
+          return;
+        }
+
+        const localLibrary = getLibrarySnapshot();
+        if (!hasLibraryContent(localLibrary)) {
+          isSharedSyncReadyRef.current = true;
+          setBackupStatus("Aucune bibliotheque serveur.");
+          return;
+        }
+
+        saveSharedLibrary(localLibrary)
+          .then((result) => {
+            serverRevisionRef.current = result.revision ?? "";
+            isSharedSyncReadyRef.current = true;
+            setBackupStatus("Bibliotheque locale envoyee au serveur.");
+          })
+          .catch((syncError) => {
+            setBackupStatus(syncError.message);
+          });
+      });
+  }, [apiHealth.status]);
+
+  useEffect(() => {
+    if (apiHealth.status !== "online" || !hasLoadedSharedLibraryRef.current) {
+      return;
+    }
+
+    if (!isSharedSyncReadyRef.current) {
+      return;
+    }
+
+    if (isApplyingSharedLibraryRef.current) {
+      isApplyingSharedLibraryRef.current = false;
+      return;
+    }
+
+    window.clearTimeout(syncTimerRef.current);
+    const snapshot = getLibrarySnapshot();
+
+    syncTimerRef.current = window.setTimeout(() => {
+      setBackupStatus("Synchronisation serveur...");
+      saveSharedLibrary(snapshot, serverRevisionRef.current)
+        .then((result) => {
+          serverRevisionRef.current = result.revision ?? "";
+          setBackupStatus("Bibliotheque synchronisee sur le serveur.");
+        })
+        .catch((error) => {
+          if (error.status === 409 && error.library) {
+            const mergedLibrary = mergeLibraries(snapshot, error.library);
+            isApplyingSharedLibraryRef.current = true;
+            applyLibrary(mergedLibrary);
+            serverRevisionRef.current = error.revision ?? "";
+            saveSharedLibrary(mergedLibrary, serverRevisionRef.current)
+              .then((result) => {
+                serverRevisionRef.current = result.revision ?? "";
+                setBackupStatus("Conflit fusionne et synchronise.");
+              })
+              .catch((syncError) => {
+                setBackupStatus(syncError.message);
+              });
+            return;
+          }
+
+          setBackupStatus(error.message);
+        });
+    }, 900);
+
+    return () => {
+      window.clearTimeout(syncTimerRef.current);
+    };
+  }, [
+    videos,
+    selectedVideoId,
+    subtitleDrafts,
+    analysisByVideoId,
+    quizProgressByVideoId,
+    studyCardsByVideoId,
+    reviewProgressByCardId,
+    deletedVideoIds,
+    selectedLevel,
+    apiHealth.status,
+  ]);
+
   const canUseAi = apiHealth.status === "online" && apiHealth.hasOpenAiKey;
   const aiStatusLabel =
     apiHealth.status === "checking"
@@ -288,8 +660,11 @@ export default function App() {
       typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
         : `${youtubeId}-${Date.now()}`;
+    const now = new Date().toISOString();
     const video = {
       id,
+      createdAt: now,
+      updatedAt: now,
       title: makeVideoTitle(youtubeUrl, fileNames),
       level: selectedLevel,
       youtubeId,
@@ -297,20 +672,35 @@ export default function App() {
       summary: `${fileNames.length} fichier${
         fileNames.length > 1 ? "s" : ""
       } SRT importe${fileNames.length > 1 ? "s" : ""}.`,
-      focus: ["SRT", "Lexique auto", "Quiz auto"],
-      vocabulary: materials.vocabulary,
-      quiz: materials.quiz,
+      focus: ["SRT"],
+      localVocabulary: materials.vocabulary,
+      localQuiz: materials.quiz,
+      vocabulary: [],
+      quiz: [],
       fileNames,
       duration: formatStudyDuration(materials.stats),
     };
 
     setImportError("");
     setVideos((currentVideos) => [video, ...currentVideos]);
+    setDeletedVideoIds((deletedIds) => {
+      const { [id]: ignored, ...remainingDeletedIds } = deletedIds;
+      return remainingDeletedIds;
+    });
     setSubtitleDrafts((drafts) => ({ ...drafts, [id]: rawSubtitles }));
     setAnalysisByVideoId((analyses) => {
       const { [id]: ignored, ...remainingAnalyses } = analyses;
       return remainingAnalyses;
     });
+    setStudyCardsByVideoId((cardsByVideoId) => ({
+      ...cardsByVideoId,
+      [id]: makeStudyCards({
+        videoId: id,
+        vocabulary: [],
+        sentences: parseSrtSentences(rawSubtitles),
+        analysis: null,
+      }),
+    }));
     setQuizProgressByVideoId((progress) => {
       const { [id]: ignored, ...remainingProgress } = progress;
       return remainingProgress;
@@ -321,6 +711,7 @@ export default function App() {
 
   function updateSubtitles(value) {
     if (!selectedVideo) return;
+    const now = new Date().toISOString();
     const materials = generateStudyMaterials(value, selectedVideo.level);
     setSubtitleDrafts((drafts) => ({
       ...drafts,
@@ -330,6 +721,15 @@ export default function App() {
       const { [selectedVideo.id]: ignored, ...remainingAnalyses } = analyses;
       return remainingAnalyses;
     });
+    setStudyCardsByVideoId((cardsByVideoId) => ({
+      ...cardsByVideoId,
+      [selectedVideo.id]: makeStudyCards({
+        videoId: selectedVideo.id,
+        vocabulary: selectedVideo.vocabulary,
+        sentences: parseSrtSentences(value),
+        analysis: null,
+      }),
+    }));
     setQuizProgressByVideoId((progress) => {
       const { [selectedVideo.id]: ignored, ...remainingProgress } = progress;
       return remainingProgress;
@@ -339,9 +739,10 @@ export default function App() {
         video.id === selectedVideo.id
           ? {
               ...video,
+              updatedAt: now,
               duration: formatStudyDuration(materials.stats),
-              vocabulary: materials.vocabulary,
-              quiz: materials.quiz,
+              localVocabulary: materials.vocabulary,
+              localQuiz: materials.quiz,
             }
           : video
       )
@@ -350,6 +751,7 @@ export default function App() {
 
   function resetSubtitles() {
     if (!selectedVideo) return;
+    const now = new Date().toISOString();
     setSubtitleDrafts((drafts) => ({
       ...drafts,
       [selectedVideo.id]: "",
@@ -358,6 +760,10 @@ export default function App() {
       const { [selectedVideo.id]: ignored, ...remainingAnalyses } = analyses;
       return remainingAnalyses;
     });
+    setStudyCardsByVideoId((cardsByVideoId) => ({
+      ...cardsByVideoId,
+      [selectedVideo.id]: [],
+    }));
     setQuizProgressByVideoId((progress) => {
       const { [selectedVideo.id]: ignored, ...remainingProgress } = progress;
       return remainingProgress;
@@ -365,7 +771,15 @@ export default function App() {
     setVideos((currentVideos) =>
       currentVideos.map((video) =>
         video.id === selectedVideo.id
-          ? { ...video, duration: "0 ligne", vocabulary: [], quiz: [] }
+          ? {
+              ...video,
+              updatedAt: now,
+              duration: "0 ligne",
+              localVocabulary: [],
+              localQuiz: [],
+              vocabulary: [],
+              quiz: [],
+            }
           : video
       )
     );
@@ -375,6 +789,7 @@ export default function App() {
     setSelectedLevel(level);
     if (!selectedVideo) return;
 
+    const now = new Date().toISOString();
     const subtitles = subtitleDrafts[selectedVideo.id] ?? "";
     const materials = generateStudyMaterials(subtitles, level);
     setVideos((currentVideos) =>
@@ -382,10 +797,11 @@ export default function App() {
         video.id === selectedVideo.id
           ? {
               ...video,
+              updatedAt: now,
               level,
               duration: formatStudyDuration(materials.stats),
-              vocabulary: materials.vocabulary,
-              quiz: materials.quiz,
+              localVocabulary: materials.vocabulary,
+              localQuiz: materials.quiz,
             }
           : video
       )
@@ -394,6 +810,15 @@ export default function App() {
       const { [selectedVideo.id]: ignored, ...remainingAnalyses } = analyses;
       return remainingAnalyses;
     });
+    setStudyCardsByVideoId((cardsByVideoId) => ({
+      ...cardsByVideoId,
+      [selectedVideo.id]: makeStudyCards({
+        videoId: selectedVideo.id,
+        vocabulary: selectedVideo.vocabulary,
+        sentences: selectedSubtitleSentences,
+        analysis: null,
+      }),
+    }));
     setQuizProgressByVideoId((progress) => {
       const { [selectedVideo.id]: ignored, ...remainingProgress } = progress;
       return remainingProgress;
@@ -402,21 +827,43 @@ export default function App() {
 
   function saveScriptAnalysis(analysis) {
     if (!selectedVideo) return;
+    const now = new Date().toISOString();
+    setVideos((currentVideos) =>
+      currentVideos.map((video) =>
+        video.id === selectedVideo.id ? { ...video, updatedAt: now } : video
+      )
+    );
     setAnalysisByVideoId((analyses) => ({
       ...analyses,
       [selectedVideo.id]: analysis,
+    }));
+    setStudyCardsByVideoId((cardsByVideoId) => ({
+      ...cardsByVideoId,
+      [selectedVideo.id]: makeStudyCards({
+        videoId: selectedVideo.id,
+        vocabulary: selectedVideo.vocabulary,
+        sentences: selectedSubtitleSentences,
+        analysis,
+      }),
     }));
   }
 
   function saveGeneratedQuiz(quiz) {
     if (!selectedVideo) return;
+    const now = new Date().toISOString();
     setVideos((currentVideos) =>
       currentVideos.map((video) =>
         video.id === selectedVideo.id
           ? {
               ...video,
+              updatedAt: now,
               quiz,
-              focus: [...new Set([...(video.focus ?? []), "QCM IA"])],
+              focus: [
+                ...new Set([
+                  ...(video.focus ?? []).filter((item) => item !== "Quiz auto"),
+                  "QCM IA",
+                ]),
+              ],
             }
           : video
       )
@@ -425,6 +872,39 @@ export default function App() {
       const { [selectedVideo.id]: ignored, ...remainingProgress } = progress;
       return remainingProgress;
     });
+  }
+
+  function saveGeneratedLexicon(vocabulary) {
+    if (!selectedVideo) return;
+    const now = new Date().toISOString();
+    setVideos((currentVideos) =>
+      currentVideos.map((video) =>
+        video.id === selectedVideo.id
+          ? {
+              ...video,
+              updatedAt: now,
+              vocabulary,
+              focus: [
+                ...new Set([
+                  ...(video.focus ?? []).filter(
+                    (item) => item !== "Lexique auto"
+                  ),
+                  "Lexique IA",
+                ]),
+              ],
+            }
+          : video
+      )
+    );
+    setStudyCardsByVideoId((cardsByVideoId) => ({
+      ...cardsByVideoId,
+      [selectedVideo.id]: makeStudyCards({
+        videoId: selectedVideo.id,
+        vocabulary,
+        sentences: selectedSubtitleSentences,
+        analysis: analysisByVideoId[selectedVideo.id],
+      }),
+    }));
   }
 
   function saveQuizProgress(progress) {
@@ -452,6 +932,13 @@ export default function App() {
         },
       };
     });
+    setVideos((currentVideos) =>
+      currentVideos.map((video) =>
+        video.id === selectedVideo.id
+          ? { ...video, updatedAt: new Date().toISOString() }
+          : video
+      )
+    );
   }
 
   function selectVideo(videoId) {
@@ -466,17 +953,22 @@ export default function App() {
     const nextTitle = title.trim();
     if (!nextTitle) return;
 
+    const now = new Date().toISOString();
     setVideos((currentVideos) =>
       currentVideos.map((video) =>
-        video.id === videoId ? { ...video, title: nextTitle } : video
+        video.id === videoId
+          ? { ...video, title: nextTitle, updatedAt: now }
+          : video
       )
     );
   }
 
   function deleteVideo(videoId) {
+    const now = new Date().toISOString();
     setVideos((currentVideos) =>
       currentVideos.filter((video) => video.id !== videoId)
     );
+    setDeletedVideoIds((deletedIds) => ({ ...deletedIds, [videoId]: now }));
     setSubtitleDrafts((drafts) => {
       const { [videoId]: ignored, ...remainingDrafts } = drafts;
       return remainingDrafts;
@@ -489,6 +981,17 @@ export default function App() {
       const { [videoId]: ignored, ...remainingProgress } = progress;
       return remainingProgress;
     });
+    setStudyCardsByVideoId((cardsByVideoId) => {
+      const { [videoId]: ignored, ...remainingCards } = cardsByVideoId;
+      return remainingCards;
+    });
+    setReviewProgressByCardId((progressByCardId) =>
+      Object.fromEntries(
+        Object.entries(progressByCardId).filter(
+          ([cardId]) => !cardId.startsWith(`${videoId}:`)
+        )
+      )
+    );
     if (selectedVideoId === videoId) {
       setSelectedVideoId("");
     }
@@ -498,8 +1001,39 @@ export default function App() {
     setSelectedVideoId("");
   }
 
-  function seekToSubtitle(time) {
-    setSeekRequest({ time, requestedAt: Date.now() });
+  function seekToSubtitle(time, endTime = null) {
+    setSeekRequest({ time, endTime, requestedAt: Date.now() });
+  }
+
+  function saveReviewProgress(card, grade) {
+    if (!card?.id) return;
+
+    const now = new Date();
+    const previousProgress = reviewProgressByCardId[card.id] ?? {};
+    const previousBox = Number(previousProgress.box) || 1;
+    const nextBox =
+      grade === "again" ? 1 : grade === "easy" ? previousBox + 2 : previousBox + 1;
+    const intervals = {
+      again: 15 * 60 * 1000,
+      good: Math.min(14, nextBox * nextBox) * 24 * 60 * 60 * 1000,
+      easy: Math.min(30, nextBox * nextBox + 3) * 24 * 60 * 60 * 1000,
+    };
+    const dueAt = new Date(now.getTime() + intervals[grade]).toISOString();
+
+    setReviewProgressByCardId((progressByCardId) => ({
+      ...progressByCardId,
+      [card.id]: {
+        box: nextBox,
+        grade,
+        reviewedAt: now.toISOString(),
+        dueAt,
+      },
+    }));
+  }
+
+  function replayReviewCard(card) {
+    if (typeof card?.startTime !== "number") return;
+    seekToSubtitle(card.startTime, card.endTime);
   }
 
   function getLibrarySnapshot() {
@@ -509,6 +1043,9 @@ export default function App() {
       subtitleDrafts,
       analysisByVideoId,
       quizProgressByVideoId,
+      studyCardsByVideoId,
+      reviewProgressByCardId,
+      deletedVideoIds,
       selectedLevel,
     };
   }
@@ -539,15 +1076,65 @@ export default function App() {
 
     try {
       const importedLibrary = normalizeLibrary(JSON.parse(await file.text()));
-      setVideos(importedLibrary.videos);
-      setSelectedVideoId(importedLibrary.selectedVideoId);
-      setSubtitleDrafts(importedLibrary.subtitleDrafts);
-      setAnalysisByVideoId(importedLibrary.analysisByVideoId);
-      setQuizProgressByVideoId(importedLibrary.quizProgressByVideoId);
-      setSelectedLevel(importedLibrary.selectedLevel);
+      applyLibrary(importedLibrary);
       setImportError("");
     } catch {
       setImportError("Le fichier de sauvegarde Kotoba n'est pas valide.");
+    }
+  }
+
+  async function saveLibraryToServer() {
+    setBackupStatus("");
+
+    try {
+      const syncResult = await saveSharedLibrary(
+        getLibrarySnapshot(),
+        serverRevisionRef.current
+      );
+      serverRevisionRef.current = syncResult.revision ?? "";
+      const result = await saveLibraryBackup(getLibrarySnapshot());
+      setBackupStatus(`Bibliotheque synchronisee : ${result.filename}`);
+    } catch (error) {
+      if (error.status === 409 && error.library) {
+        const mergedLibrary = mergeLibraries(getLibrarySnapshot(), error.library);
+        applyLibrary(mergedLibrary);
+        serverRevisionRef.current = error.revision ?? "";
+        const syncResult = await saveSharedLibrary(
+          mergedLibrary,
+          serverRevisionRef.current
+        );
+        serverRevisionRef.current = syncResult.revision ?? "";
+        const result = await saveLibraryBackup(mergedLibrary);
+        setBackupStatus(`Conflit fusionne : ${result.filename}`);
+        return;
+      }
+
+      setBackupStatus(error.message);
+    }
+  }
+
+  function applyLibrary(importedLibrary) {
+    setVideos(importedLibrary.videos);
+    setSelectedVideoId(importedLibrary.selectedVideoId);
+    setSubtitleDrafts(importedLibrary.subtitleDrafts);
+    setAnalysisByVideoId(importedLibrary.analysisByVideoId);
+    setQuizProgressByVideoId(importedLibrary.quizProgressByVideoId);
+    setStudyCardsByVideoId(importedLibrary.studyCardsByVideoId);
+    setReviewProgressByCardId(importedLibrary.reviewProgressByCardId);
+    setDeletedVideoIds(importedLibrary.deletedVideoIds);
+    setSelectedLevel(importedLibrary.selectedLevel);
+  }
+
+  async function restoreLatestLibraryBackup() {
+    setBackupStatus("");
+
+    try {
+      const result = await getLatestLibraryBackup();
+      applyLibrary(normalizeLibrary(result.backup));
+      setImportError("");
+      setBackupStatus(`Sauvegarde restauree : ${result.filename}`);
+    } catch (error) {
+      setBackupStatus(error.message);
     }
   }
 
@@ -619,6 +1206,8 @@ export default function App() {
               script={cleanSrtText(selectedSubtitleText)}
               canUseAi={canUseAi}
               quizProgress={quizProgressByVideoId[selectedVideo.id]}
+              reviewCards={selectedReviewCards}
+              reviewProgressByCardId={reviewProgressByCardId}
               subtitlesPanel={
                 <SubtitlesPanel
                   rawText={selectedSubtitleText}
@@ -636,7 +1225,10 @@ export default function App() {
                 />
               }
               onQuizGenerated={saveGeneratedQuiz}
+              onLexiconGenerated={saveGeneratedLexicon}
               onQuizProgress={saveQuizProgress}
+              onReviewGrade={saveReviewProgress}
+              onReviewReplay={replayReviewCard}
             />
           </div>
         ) : (
@@ -645,7 +1237,10 @@ export default function App() {
             subtitleDrafts={subtitleDrafts}
             quizProgressByVideoId={quizProgressByVideoId}
             importError={importError}
+            backupStatus={backupStatus}
             onAddVideo={addVideo}
+            onSaveLibrary={saveLibraryToServer}
+            onRestoreLibrary={restoreLatestLibraryBackup}
             onExportLibrary={exportLibrary}
             onImportLibrary={importLibrary}
             onRenameVideo={renameVideo}

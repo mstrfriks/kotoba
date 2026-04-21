@@ -411,7 +411,53 @@ function romajiToHiragana(value) {
   return directReadings[value] ?? value;
 }
 
-export function addFuriganaToText(value, vocabulary = []) {
+function hasKanji(value) {
+  return /\p{Script=Han}/u.test(value);
+}
+
+function getKanjiPrefixLength(value) {
+  const match = value.match(/^[\p{Script=Han}々]+/u);
+  return match ? match[0].length : 0;
+}
+
+function getKanaSuffix(value) {
+  return value.match(/[\p{Script=Hiragana}\p{Script=Katakana}ー]+$/u)?.[0] ?? "";
+}
+
+function renderRuby(surface, reading, mode = "always") {
+  if (mode === "hidden" || !hasKanji(surface)) return escapeHtml(surface);
+
+  const cleanReading = String(reading ?? "").trim();
+  if (!cleanReading || cleanReading === "?" || cleanReading === surface) {
+    return escapeHtml(surface);
+  }
+
+  const kanaSuffix = getKanaSuffix(surface);
+  if (kanaSuffix && cleanReading.endsWith(kanaSuffix)) {
+    const base = surface.slice(0, -kanaSuffix.length);
+    const baseReading = cleanReading.slice(0, -kanaSuffix.length);
+    if (base && baseReading && hasKanji(base)) {
+      return `<ruby>${escapeHtml(base)}<rt>${escapeHtml(
+        baseReading
+      )}</rt></ruby>${escapeHtml(kanaSuffix)}`;
+    }
+  }
+
+  const kanjiPrefixLength = getKanjiPrefixLength(surface);
+  if (kanjiPrefixLength > 0 && kanjiPrefixLength < surface.length) {
+    const base = surface.slice(0, kanjiPrefixLength);
+    const suffix = surface.slice(kanjiPrefixLength);
+    return `<ruby>${escapeHtml(base)}<rt>${escapeHtml(
+      cleanReading
+    )}</rt></ruby>${escapeHtml(suffix)}`;
+  }
+
+  return `<ruby>${escapeHtml(surface)}<rt>${escapeHtml(cleanReading)}</rt></ruby>`;
+}
+
+export function addFuriganaToText(value, vocabulary = [], mode = "always") {
+  if (mode === "hidden") return escapeHtml(value);
+
   const readings = new Map(
     [...commonJapaneseTerms, ...vocabulary]
       .filter((item) => item?.japanese && item?.reading)
@@ -425,18 +471,14 @@ export function addFuriganaToText(value, vocabulary = []) {
   while (index < value.length) {
     const match = terms.find((term) => value.startsWith(term, index));
     if (match) {
-      output += `<ruby>${escapeHtml(match)}<rt>${escapeHtml(
-        readings.get(match)
-      )}</rt></ruby>`;
+      output += renderRuby(match, readings.get(match), mode);
       index += match.length;
       continue;
     }
 
     const character = value[index];
     if (/\p{Script=Han}/u.test(character)) {
-      output += `<ruby>${escapeHtml(character)}<rt>${escapeHtml(
-        kanjiHiraganaReadings[character] ?? "?"
-      )}</rt></ruby>`;
+      output += renderRuby(character, kanjiHiraganaReadings[character], mode);
     } else {
       output += escapeHtml(character);
     }
@@ -482,6 +524,59 @@ export const studyLevels = [
   { value: "N2", label: "N2", description: "nuances et inference" },
   { value: "N1", label: "N1", description: "analyse approfondie" },
 ];
+
+export function makeStudyCards({
+  videoId,
+  vocabulary = [],
+  sentences = [],
+  analysis,
+}) {
+  const analysisById = new Map(
+    (Array.isArray(analysis?.sentences) ? analysis.sentences : [])
+      .filter((sentence) => sentence?.id)
+      .map((sentence) => [sentence.id, sentence])
+  );
+  const cards = [];
+
+  for (const item of vocabulary) {
+    const japanese = stripHtml(String(item?.japanese ?? "")).trim();
+    const french = String(item?.french ?? "").trim();
+    if (!japanese || !french) continue;
+
+    cards.push({
+      id: `${videoId}:vocab:${japanese}`,
+      type: "vocabulary",
+      front: japanese,
+      back: french,
+      reading: String(item?.reading ?? "").trim(),
+      hint: String(item?.explanation ?? item?.example ?? "").trim(),
+      sentence: stripHtml(String(item?.example ?? "")).trim(),
+      startTime: null,
+      endTime: null,
+    });
+  }
+
+  for (const sentence of sentences) {
+    const text = String(sentence?.text ?? "").trim();
+    if (!text || typeof sentence?.startTime !== "number") continue;
+
+    const analyzedSentence = analysisById.get(sentence.id);
+    cards.push({
+      id: `${videoId}:sentence:${sentence.id}`,
+      type: "sentence",
+      front: text,
+      back: String(analyzedSentence?.translationFr ?? "").trim(),
+      reading: "",
+      hint: sentence.time ?? "",
+      sentence: text,
+      startTime: sentence.startTime,
+      endTime:
+        typeof sentence.endTime === "number" ? sentence.endTime : null,
+    });
+  }
+
+  return cards.slice(0, 80);
+}
 
 const levelInstructions = {
   N5: "この文の内容として正しいものはどれですか。",

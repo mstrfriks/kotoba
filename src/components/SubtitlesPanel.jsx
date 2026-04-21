@@ -8,6 +8,7 @@ import {
   Copy,
   Languages,
   Loader2,
+  PlayCircle,
   RotateCcw,
 } from "lucide-react";
 import { analyzeScript, translateSentence } from "../lib/api";
@@ -21,6 +22,11 @@ import {
 import { Button } from "./ui/Button";
 
 const TRANSLATION_CACHE_KEY = "japonais.sentenceTranslations.v1";
+const furiganaModes = [
+  { value: "always", label: "Toujours" },
+  { value: "hover", label: "Survol" },
+  { value: "hidden", label: "Masque" },
+];
 
 function makeTranslationKey(sentence, level) {
   return `${level}:${sentence}`;
@@ -51,26 +57,36 @@ function hasJapaneseText(value) {
   return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(value);
 }
 
-function TokenizedSentence({ sentence, analyzedSentence, vocabulary }) {
+function TokenizedSentence({
+  sentence,
+  analyzedSentence,
+  vocabulary,
+  furiganaMode,
+}) {
   const tokens = Array.isArray(analyzedSentence?.tokens)
     ? analyzedSentence.tokens.filter((token) => token?.surface)
     : [];
+  const sentenceClassName = cn(
+    "whitespace-pre-wrap text-base leading-8 text-[#243229]",
+    furiganaMode === "hover" && "furigana-hover"
+  );
 
   if (!tokens.length) {
     return (
       <p
-        className="whitespace-pre-wrap text-base leading-8 text-[#243229]"
+        className={sentenceClassName}
         dangerouslySetInnerHTML={{
-          __html: addFuriganaToText(sentence.text, vocabulary),
+          __html: addFuriganaToText(sentence.text, vocabulary, furiganaMode),
         }}
       />
     );
   }
 
   return (
-    <p className="whitespace-pre-wrap text-base leading-8 text-[#243229]">
+    <p className={sentenceClassName}>
       {tokens.map((token, index) => {
-        const content = token.reading ? (
+        const showRuby = furiganaMode !== "hidden" && token.reading;
+        const content = showRuby ? (
           <ruby>
             {token.surface}
             <rt>{token.reading}</rt>
@@ -126,6 +142,7 @@ export function SubtitlesPanel({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState("");
   const [followPlayback, setFollowPlayback] = useState(true);
+  const [furiganaMode, setFuriganaMode] = useState("always");
   const sentenceRefs = useRef(new Map());
   const cleanedText = cleanSrtText(rawText);
   const stats = getTextStats(cleanedText);
@@ -173,7 +190,7 @@ export function SubtitlesPanel({
 
   function seekToSentence(sentence) {
     if (typeof sentence?.startTime !== "number") return;
-    onSeek?.(sentence.startTime);
+    onSeek?.(sentence.startTime, sentence.endTime);
   }
 
   function seekByOffset(offset) {
@@ -274,6 +291,18 @@ export function SubtitlesPanel({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <select
+            value={furiganaMode}
+            onChange={(event) => setFuriganaMode(event.target.value)}
+            className="h-8 rounded-md border border-[#d7ddd8] bg-white px-2 text-xs font-medium text-[#526058] outline-none transition focus:border-[#315b40] focus:ring-2 focus:ring-[#d8e7dc]"
+            title="Affichage des furigana"
+          >
+            {furiganaModes.map((mode) => (
+              <option key={mode.value} value={mode.value}>
+                Furigana {mode.label}
+              </option>
+            ))}
+          </select>
           <div className="flex items-center rounded-md border border-[#d7ddd8] bg-white">
             <button
               type="button"
@@ -398,6 +427,7 @@ export function SubtitlesPanel({
                       sentence={sentence}
                       analyzedSentence={analyzedSentence}
                       vocabulary={vocabulary}
+                      furiganaMode={furiganaMode}
                     />
                     {translation && (
                       <p className="mt-2 rounded-md bg-[#f4f7f4] p-3 text-sm leading-6 text-[#405048]">
@@ -411,7 +441,7 @@ export function SubtitlesPanel({
                     <button
                       type="button"
                       className="inline-flex items-center gap-1 rounded text-left text-[11px] font-medium text-[#7a857e] transition hover:text-[#315b40] disabled:pointer-events-none"
-                      onClick={() => onSeek?.(sentence.startTime)}
+                      onClick={() => onSeek?.(sentence.startTime, sentence.endTime)}
                       disabled={typeof sentence.startTime !== "number"}
                       title="Aller a ce passage dans la video."
                     >
@@ -420,6 +450,17 @@ export function SubtitlesPanel({
                     </button>
                   ) : (
                     <span />
+                  )}
+                  {typeof sentence.startTime === "number" && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onSeek?.(sentence.startTime, sentence.endTime)}
+                      title="Rejouer cette phrase et s'arreter a la fin du sous-titre."
+                    >
+                      <PlayCircle className="h-4 w-4" />
+                      Rejouer
+                    </Button>
                   )}
                   <Button
                     size="sm"

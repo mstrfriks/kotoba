@@ -4,6 +4,7 @@ import { Button } from "./ui/Button";
 
 export function QuizPanel({
   questions,
+  canUseAi,
   currentIndex,
   selectedChoice,
   isValidated,
@@ -26,7 +27,9 @@ export function QuizPanel({
   if (!total) {
     return (
       <div className="rounded-md border border-dashed border-[#d9e0da] bg-white p-4 text-sm leading-6 text-[#68756d]">
-        Aucun quiz genere. Ajoute un fichier SRT contenant du texte japonais.
+        {canUseAi
+          ? "Aucun QCM IA genere. Lance Tout IA ou QCM IA pour creer les questions."
+          : "Aucun QCM IA genere. Renseigne OPENAI_API_KEY puis lance npm run app."}
       </div>
     );
   }

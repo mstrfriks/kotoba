@@ -28,6 +28,16 @@ rt {
   color: #657069;
 }
 
+.furigana-hover rt {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.furigana-hover ruby:hover rt,
+.furigana-hover ruby:focus-within rt {
+  opacity: 1;
+}
+
 .study-scroll {
   scrollbar-width: thin;
   scrollbar-color: #c7cec8 transparent;

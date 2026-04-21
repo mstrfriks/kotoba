@@ -1,9 +1,10 @@
-export function LexiconPanel({ vocabulary }) {
+export function LexiconPanel({ vocabulary, canUseAi }) {
   if (!vocabulary.length) {
     return (
       <div className="rounded-md border border-dashed border-[#d9e0da] bg-white p-4 text-sm leading-6 text-[#68756d]">
-        Aucun mot extrait. Ajoute ou corrige le contenu SRT dans l'onglet
-        Sous-titres.
+        {canUseAi
+          ? "Aucun lexique IA genere. Lance Tout IA ou Lexique IA pour creer un lexique contextualise."
+          : "Aucun lexique IA genere. Renseigne OPENAI_API_KEY puis lance npm run app."}
       </div>
     );
   }
@@ -21,14 +22,30 @@ export function LexiconPanel({ vocabulary }) {
                 className="text-xl font-semibold text-[#1d2b22]"
                 dangerouslySetInnerHTML={{ __html: item.japanese }}
               />
-              <p className="mt-1 text-xs uppercase tracking-wide text-[#7a857e]">
-                {item.reading}
+              <p className="mt-1 text-xs font-medium text-[#7a857e]">
+                {[item.reading, item.partOfSpeech, item.levelHint]
+                  .filter(Boolean)
+                  .join(" · ")}
               </p>
             </div>
             <p className="rounded bg-[#eef5ef] px-2 py-1 text-sm font-medium text-[#315b40]">
               {item.french}
             </p>
           </div>
+          {(item.dictionaryForm || item.explanation) && (
+            <div className="mt-3 rounded-md bg-[#f7f9f7] p-3 text-sm leading-6 text-[#405048]">
+              {item.dictionaryForm && (
+                <p className="font-medium text-[#26332b]">
+                  Forme dictionnaire : {item.dictionaryForm}
+                </p>
+              )}
+              {item.explanation && (
+                <p className={item.dictionaryForm ? "mt-1" : ""}>
+                  {item.explanation}
+                </p>
+              )}
+            </div>
+          )}
           <div
             className="mt-3 border-t border-[#edf0ed] pt-3 text-sm leading-6 text-[#53625a]"
             dangerouslySetInnerHTML={{ __html: item.example }}

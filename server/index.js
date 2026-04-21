@@ -1,15 +1,21 @@
 const cors = require("cors");
 const dotenv = require("dotenv");
 const express = require("express");
+const fs = require("fs/promises");
+const path = require("path");
 
 dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT) || 8787;
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
+const backupDir =
+  process.env.KOTOBA_BACKUP_DIR || path.join(__dirname, "..", "backups");
+const currentLibraryFilename = "kotoba-bibliotheque-current.json";
+const currentLibraryPath = path.join(backupDir, currentLibraryFilename);
 
 app.use(cors());
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "20mb" }));
 
 function requireApiKey() {
   if (!process.env.OPENAI_API_KEY) {
@@ -115,12 +121,201 @@ function normalizeQuizQuestions(questions) {
     .filter(Boolean);
 }
 
+function normalizeVocabularyItems(items) {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item) => {
+      const japanese = String(item?.japanese ?? "").trim();
+      const reading = String(item?.reading ?? "").trim();
+      const french = String(item?.french ?? "").trim();
+
+      if (!japanese || !reading || !french) return null;
+
+      return {
+        japanese,
+        reading,
+        french,
+        example: String(item?.example ?? "").trim(),
+        partOfSpeech: String(item?.partOfSpeech ?? "").trim(),
+        dictionaryForm: String(item?.dictionaryForm ?? "").trim(),
+        levelHint: String(item?.levelHint ?? "").trim(),
+        explanation: String(item?.explanation ?? "").trim(),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 24);
+}
+
+function isValidLibrary(value) {
+  return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function makeRevision() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function writeCurrentLibrary(library) {
+  await fs.mkdir(backupDir, { recursive: true });
+  const payload = {
+    app: "kotoba",
+    version: 1,
+    revision: makeRevision(),
+    updatedAt: new Date().toISOString(),
+    library,
+  };
+
+  await fs.writeFile(
+    currentLibraryPath,
+    JSON.stringify(payload, null, 2),
+    "utf8"
+  );
+  return payload;
+}
+
 app.get("/api/health", (request, response) => {
   response.json({
     ok: true,
     model,
     hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
   });
+});
+
+app.get("/api/library", async (request, response, next) => {
+  try {
+    const payload = JSON.parse(await fs.readFile(currentLibraryPath, "utf8"));
+    response.json({
+      ok: true,
+      revision: payload.revision ?? "",
+      updatedAt: payload.updatedAt ?? payload.savedAt ?? "",
+      library: payload.library ?? payload,
+    });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      response.status(404).json({ error: "Aucune bibliotheque serveur." });
+      return;
+    }
+
+    next(error);
+  }
+});
+
+app.put("/api/library", async (request, response, next) => {
+  try {
+    const library = request.body?.library;
+    const baseRevision = String(request.body?.baseRevision ?? "");
+    if (!isValidLibrary(library)) {
+      response.status(400).json({ error: "Bibliotheque absente ou invalide." });
+      return;
+    }
+
+    const currentPayload = await fs
+      .readFile(currentLibraryPath, "utf8")
+      .then((content) => JSON.parse(content))
+      .catch((error) => {
+        if (error.code === "ENOENT") return null;
+        throw error;
+      });
+    const currentRevision = currentPayload?.revision ?? "";
+
+    if (currentRevision && baseRevision && currentRevision !== baseRevision) {
+      response.status(409).json({
+        error: "La bibliotheque serveur a change depuis ton dernier chargement.",
+        revision: currentRevision,
+        updatedAt: currentPayload.updatedAt ?? currentPayload.savedAt ?? "",
+        library: currentPayload.library ?? currentPayload,
+      });
+      return;
+    }
+
+    const payload = await writeCurrentLibrary(library);
+    response.json({
+      ok: true,
+      revision: payload.revision,
+      updatedAt: payload.updatedAt,
+      filename: currentLibraryFilename,
+      directory: backupDir,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/library-backup", async (request, response, next) => {
+  try {
+    const library = request.body?.library;
+    if (!isValidLibrary(library)) {
+      response.status(400).json({ error: "Bibliotheque absente ou invalide." });
+      return;
+    }
+
+    await fs.mkdir(backupDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = `kotoba-bibliotheque-${timestamp}.json`;
+    const payload = {
+      app: "kotoba",
+      version: 1,
+      savedAt: new Date().toISOString(),
+      library,
+    };
+    await fs.writeFile(
+      path.join(backupDir, filename),
+      JSON.stringify(payload, null, 2),
+      "utf8"
+    );
+
+    response.json({ ok: true, filename, directory: backupDir });
+  } catch (error) {
+    next(error);
+  }
+});
+
+async function listBackupFiles() {
+  await fs.mkdir(backupDir, { recursive: true });
+  const entries = await fs.readdir(backupDir, { withFileTypes: true });
+  const files = await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          entry.name.startsWith("kotoba-bibliotheque-") &&
+          entry.name !== currentLibraryFilename &&
+          entry.name.endsWith(".json")
+      )
+      .map(async (entry) => {
+        const filepath = path.join(backupDir, entry.name);
+        const stats = await fs.stat(filepath);
+        return {
+          filename: entry.name,
+          filepath,
+          updatedAt: stats.mtime.toISOString(),
+          size: stats.size,
+        };
+      })
+  );
+
+  return files.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+app.get("/api/library-backups/latest", async (request, response, next) => {
+  try {
+    const [latestBackup] = await listBackupFiles();
+    if (!latestBackup) {
+      response.status(404).json({ error: "Aucune sauvegarde trouvee." });
+      return;
+    }
+
+    const payload = JSON.parse(await fs.readFile(latestBackup.filepath, "utf8"));
+    response.json({
+      ok: true,
+      filename: latestBackup.filename,
+      updatedAt: latestBackup.updatedAt,
+      size: latestBackup.size,
+      backup: payload,
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post("/api/translate-sentence", async (request, response, next) => {
@@ -208,6 +403,11 @@ app.post("/api/generate-quiz", async (request, response, next) => {
   try {
     const script = String(request.body?.script ?? "").trim();
     const level = normalizeLevel(request.body?.level);
+    const quizType = ["comprehension", "vocabulary", "grammar"].includes(
+      request.body?.quizType
+    )
+      ? request.body.quizType
+      : "comprehension";
     const questionCount = Math.min(
       Math.max(Number(request.body?.questionCount) || 8, 3),
       12
@@ -220,9 +420,10 @@ app.post("/api/generate-quiz", async (request, response, next) => {
 
     const rawJson = await createTextResponse({
       instructions:
-        "Tu generes un QCM de comprehension pour un francophone qui apprend le japonais. Reponds en JSON valide uniquement.",
+        "Tu generes un QCM pour un francophone qui apprend le japonais. Reponds en JSON valide uniquement. Adapte les questions au type demande : comprehension globale, vocabulaire contextualise ou grammaire utile.",
       input: JSON.stringify({
         level,
+        quizType,
         questionCount,
         expectedShape: {
           questions: [
@@ -243,6 +444,54 @@ app.post("/api/generate-quiz", async (request, response, next) => {
     const parsed = parseJsonOutput(rawJson);
     const questions = normalizeQuizQuestions(parsed.questions);
     response.json({ questions });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/generate-lexicon", async (request, response, next) => {
+  try {
+    const script = String(request.body?.script ?? "").trim();
+    const level = normalizeLevel(request.body?.level);
+    const maxItems = Math.min(Math.max(Number(request.body?.maxItems) || 18, 6), 24);
+    const vocabulary = Array.isArray(request.body?.vocabulary)
+      ? request.body.vocabulary.slice(0, 24)
+      : [];
+
+    if (!script) {
+      response.status(400).json({ error: "Le script est vide." });
+      return;
+    }
+
+    const rawJson = await createTextResponse({
+      instructions:
+        "Tu crees un lexique japonais-francais contextualise pour un francophone qui apprend le japonais. Reponds en JSON valide uniquement. Choisis les mots et expressions les plus utiles du script. Les readings doivent etre en hiragana. Les exemples doivent venir du script quand possible. Adapte les explications au niveau JLPT.",
+      input: JSON.stringify({
+        level,
+        maxItems,
+        currentVocabulary: vocabulary,
+        expectedShape: {
+          vocabulary: [
+            {
+              japanese: "思い出す",
+              reading: "おもいだす",
+              french: "se souvenir",
+              partOfSpeech: "verbe",
+              dictionaryForm: "思い出す",
+              levelHint: "N3",
+              example: "phrase exacte ou courte du script",
+              explanation: "explication courte en francais",
+            },
+          ],
+        },
+        script,
+      }),
+      maxOutputTokens: 3500,
+    });
+
+    const parsed = parseJsonOutput(rawJson);
+    const items = normalizeVocabularyItems(parsed.vocabulary);
+    response.json({ vocabulary: items });
   } catch (error) {
     next(error);
   }

@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0",
     "server": "node server/index.js",
     "app": "concurrently \"npm run server\" \"npm run dev\"",
     "build": "vite build",

@@ -104,7 +104,10 @@ export function HomeDashboard({
   subtitleDrafts,
   quizProgressByVideoId = {},
   importError,
+  backupStatus,
   onAddVideo,
+  onSaveLibrary,
+  onRestoreLibrary,
   onExportLibrary,
   onImportLibrary,
   onRenameVideo,
@@ -143,10 +146,28 @@ export function HomeDashboard({
               Sauvegarde
             </p>
             <h2 className="mt-1 text-lg font-semibold text-[#1d2b22]">
-              Bibliotheque locale
+              Bibliotheque partagee
             </h2>
           </div>
           <div className="mt-4 grid gap-2">
+            <Button
+              type="button"
+              onClick={onSaveLibrary}
+              disabled={!videos.length}
+              className="w-full"
+            >
+              <Download className="h-4 w-4" />
+              Synchroniser
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onRestoreLibrary}
+              className="w-full"
+            >
+              <Upload className="h-4 w-4" />
+              Restaurer backup
+            </Button>
             <Button
               type="button"
               variant="secondary"
@@ -155,7 +176,7 @@ export function HomeDashboard({
               className="w-full"
             >
               <Download className="h-4 w-4" />
-              Exporter
+              Export fichier
             </Button>
             <label className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-[#d7ddd8] bg-white px-4 text-sm font-medium text-[#233128] transition hover:bg-[#f0f3f0]">
               <Upload className="h-4 w-4" />
@@ -171,6 +192,11 @@ export function HomeDashboard({
               />
             </label>
           </div>
+          {backupStatus && (
+            <p className="mt-3 rounded-md bg-[#f7f9f7] p-2 text-xs font-medium text-[#526058]">
+              {backupStatus}
+            </p>
+          )}
         </section>
         <VideoImporter onAddVideo={onAddVideo} />
         {importError && (

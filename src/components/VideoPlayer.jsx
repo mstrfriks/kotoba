@@ -33,6 +33,7 @@ export function VideoPlayer({
   const playerRef = useRef(null);
   const intervalRef = useRef(null);
   const pendingSeekRef = useRef(null);
+  const pauseAtRef = useRef(null);
 
   function applySeekRequest(request) {
     if (
@@ -49,6 +50,10 @@ export function VideoPlayer({
     }
 
     player.seekTo(request.time, true);
+    pauseAtRef.current =
+      typeof request.endTime === "number" && request.endTime > request.time
+        ? request.endTime
+        : null;
     player.playVideo?.();
     pendingSeekRef.current = null;
     return true;
@@ -67,7 +72,12 @@ export function VideoPlayer({
             intervalRef.current = window.setInterval(() => {
               const player = playerRef.current;
               if (!player?.getCurrentTime) return;
-              onTimeChange?.(player.getCurrentTime());
+              const currentTime = player.getCurrentTime();
+              onTimeChange?.(currentTime);
+              if (pauseAtRef.current && currentTime >= pauseAtRef.current) {
+                player.pauseVideo?.();
+                pauseAtRef.current = null;
+              }
             }, 400);
           },
         },
@@ -77,6 +87,7 @@ export function VideoPlayer({
     return () => {
       isCurrent = false;
       pendingSeekRef.current = null;
+      pauseAtRef.current = null;
       if (intervalRef.current) {
         window.clearInterval(intervalRef.current);
         intervalRef.current = null;

@@ -27,6 +27,73 @@ export async function getApiHealth() {
   return body;
 }
 
+export async function saveLibraryBackup(library) {
+  const response = await fetch("/api/library-backup", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ library }),
+  });
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(body.error ?? "Impossible de sauvegarder la bibliotheque.");
+  }
+
+  return body;
+}
+
+export async function saveSharedLibrary(library, baseRevision = "") {
+  const response = await fetch("/api/library", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ library, baseRevision }),
+  });
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(
+      body.error ?? "Impossible de synchroniser la bibliotheque."
+    );
+    error.status = response.status;
+    error.revision = body.revision ?? "";
+    error.updatedAt = body.updatedAt ?? "";
+    error.library = body.library;
+    throw error;
+  }
+
+  return body;
+}
+
+export async function getSharedLibrary() {
+  const response = await fetch("/api/library");
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(
+      body.error ?? "Impossible de charger la bibliotheque serveur."
+    );
+    error.status = response.status;
+    throw error;
+  }
+
+  return body;
+}
+
+export async function getLatestLibraryBackup() {
+  const response = await fetch("/api/library-backups/latest");
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(body.error ?? "Impossible de charger la sauvegarde.");
+  }
+
+  return body;
+}
+
 export async function analyzeScript({ sentences, level }) {
   const response = await fetch("/api/analyze-script", {
     method: "POST",
@@ -45,13 +112,18 @@ export async function analyzeScript({ sentences, level }) {
   return body;
 }
 
-export async function generateAiQuiz({ script, level, questionCount = 8 }) {
+export async function generateAiQuiz({
+  script,
+  level,
+  questionCount = 8,
+  quizType = "comprehension",
+}) {
   const response = await fetch("/api/generate-quiz", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ script, level, questionCount }),
+    body: JSON.stringify({ script, level, questionCount, quizType }),
   });
 
   const body = await response.json().catch(() => ({}));
@@ -61,4 +133,27 @@ export async function generateAiQuiz({ script, level, questionCount = 8 }) {
   }
 
   return Array.isArray(body.questions) ? body.questions : [];
+}
+
+export async function generateAiLexicon({
+  script,
+  level,
+  vocabulary = [],
+  maxItems = 18,
+}) {
+  const response = await fetch("/api/generate-lexicon", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ script, level, vocabulary, maxItems }),
+  });
+
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(body.error ?? "Impossible de generer le lexique.");
+  }
+
+  return Array.isArray(body.vocabulary) ? body.vocabulary : [];
 }
