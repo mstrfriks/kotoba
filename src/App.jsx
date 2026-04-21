@@ -395,9 +395,7 @@ function mergeLibraries(localLibrary, remoteLibrary) {
 export default function App() {
   const [library] = useState(loadStoredLibrary);
   const [videos, setVideos] = useState(library.videos);
-  const [selectedVideoId, setSelectedVideoId] = useState(
-    library.selectedVideoId
-  );
+  const [selectedVideoId, setSelectedVideoId] = useState("");
   const [subtitleDrafts, setSubtitleDrafts] = useState(library.subtitleDrafts);
   const [analysisByVideoId, setAnalysisByVideoId] = useState(
     library.analysisByVideoId
@@ -1244,8 +1242,12 @@ export default function App() {
   }
 
   function applyLibrary(importedLibrary) {
+    const selectedVideoExists = importedLibrary.videos.some(
+      (video) => video.id === selectedVideoId
+    );
+
     setVideos(importedLibrary.videos);
-    setSelectedVideoId(importedLibrary.selectedVideoId);
+    setSelectedVideoId(selectedVideoExists ? selectedVideoId : "");
     setSubtitleDrafts(importedLibrary.subtitleDrafts);
     setAnalysisByVideoId(importedLibrary.analysisByVideoId);
     setQuizProgressByVideoId(importedLibrary.quizProgressByVideoId);
